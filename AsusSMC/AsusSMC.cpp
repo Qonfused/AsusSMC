@@ -72,6 +72,8 @@ bool AsusSMC::start(IOService *provider) {
 
     initEC0Device();
 
+    initScreenpadDevice();
+
     initBattery();
 
     initVirtualKeyboard();
@@ -374,6 +376,33 @@ void AsusSMC::initEC0Device() {
     }
 
     SYSLOG("ec0", "Found EC0 Device %s", ec0Device->getName());
+}
+
+void AsusSMC::initScreenpadDevice() {
+    // Check for screenpad device support
+    bool status = wmi_dev_is_present(ASUS_WMI_DEVID_SCREENPAD);
+    DBGLOG("splc", "Screenpad device %s supported", status ? "is" : "is not");
+
+    // Check backlight capability
+    hasScreenpadBacklight = wmi_dev_is_present(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
+    setProperty("IsScreenpadBacklightSupported", hasScreenpadBacklight);
+    DBGLOG("splc", "Screenpad backlight %s supported", hasScreenpadBacklight ? "is" : "is not");
+
+    // Assume screenpad is powered on after boot
+    // TODO: Read connector power state.
+    isScreenpadEnabled = (status && hasScreenpadBacklight);
+    if (!isScreenpadEnabled) return;
+
+    // Restore screenpad to previous backlight value if it exists
+    // TODO: Write/Read value to/from a persistent IORegistry key.
+    uint32_t previous_backlight = 0x64; // 0x64 is the default value set at boot
+                                        // 0x00 is the range minimum
+                                        // 0xFF is the range maximum
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD_LIGHT, previous_backlight) != -1) {
+        DBGLOG("splc", "Restored last screenpad backlight value (%d)", previous_backlight);
+    } else {
+        DBGLOG("splc", "Failed to restore last screenpad backlight value");
+    }
 }
 
 void AsusSMC::initBattery() {

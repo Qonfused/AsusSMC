@@ -137,8 +137,10 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
+    bool hasScreenpadBacklight {false};
     bool isALSEnabled {true};
     bool isTouchpadEnabled {true};
+    bool isScreenpadEnabled {false};
     bool isPanelBackLightOn {true};
     bool isTACHAvailable {false};
     bool isBatteryRSOCAvailable {false};
