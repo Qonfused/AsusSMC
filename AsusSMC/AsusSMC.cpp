@@ -624,6 +624,21 @@ void AsusSMC::toggleTouchpad() {
     }
 }
 
+void AsusSMC::toggleScreenpad() {
+    bool state = !isScreenpadEnabled;
+
+    // TODO: Store screenpad backlight value for next backlight toggle.
+
+    // Toggle screenpad connector power
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD, state ? 1 : 0) != -1) {
+        DBGLOG("splc", "%s screenpad connector power", state ? "Restored" : "Disabled");
+        isScreenpadEnabled = state;
+        // TODO: Restore screenpad backlight value if power is re-enabled.
+    } else {
+        DBGLOG("splc", "Failed to %s screenpad connector power", state ? "restore" : "disable");
+    }
+}
+
 void AsusSMC::toggleALS(bool state) {
     if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_ALS_ENABLE, state ? 1 : 0) == -1) {
         SYSLOG("atk", "Failed to %s ALSC", state ? "enable" : "disable");
