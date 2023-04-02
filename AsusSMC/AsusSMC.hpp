@@ -152,6 +152,8 @@ private:
     int findBacklightEntry();
     void readPanelBrightnessValue();
 
+    uint32_t screenpadBrightnessLevel {16};
+    
     IOReturn postKeyboardInputReport(const void *report, uint32_t reportSize);
     void dispatchCSMRReport(int code, int loop = 1);
     void dispatchTCReport(int code, int loop = 1);

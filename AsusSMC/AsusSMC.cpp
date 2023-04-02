@@ -398,8 +398,6 @@ void AsusSMC::initScreenpadDevice() {
     // Restore screenpad to previous backlight value if it exists
     // TODO: Write/Read value to/from a persistent IORegistry key
     uint32_t previous_backlight = 0x64; // 0x64 is the default value set at boot
-                                        // 0x00 is the range minimum
-                                        // 0xFF is the range maximum
     if (writeScreenPadBrightnessValue(previous_backlight) != -1) {
         DBGLOG("splc", "Restored last screenpad backlight value (%d)", previous_backlight);
     } else {
@@ -627,15 +625,20 @@ void AsusSMC::toggleTouchpad() {
 void AsusSMC::toggleScreenpad() {
     bool state = !isScreenpadEnabled;
 
-    // TODO: Store screenpad backlight value for next backlight toggle.
-
     // Toggle screenpad connector power
-    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD, state ? 1 : 0) != -1) {
+    int status = wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD, state ? 1 : 0)
+    if (status != -1) {
         DBGLOG("splc", "%s screenpad connector power", state ? "Restored" : "Disabled");
         isScreenpadEnabled = state;
-        // TODO: Restore screenpad backlight value if power is re-enabled.
     } else {
         DBGLOG("splc", "Failed to %s screenpad connector power", state ? "restore" : "disable");
+        return;
+    }
+
+    // Restore screenpad backlight value if power is re-enabled.
+    if (isScreenpadEnabled) {
+        uint8_t backlightValue = readScreenPadBrightnessValue();
+        writeScreenPadBrightnessValue(backlightValue);
     }
 }
 
@@ -763,11 +766,33 @@ void AsusSMC::readPanelBrightnessValue() {
     OSSafeReleaseNULL(displayDeviceEntry);
 }
 
-void AsusSMC::readScreenPadBrightnessValue() { /* Read DSTS 0x00050032 ? */ }
+uint8_t AsusSMC::readScreenPadBrightnessValue() {
+    int status = wmi_get_devstate(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
+    if (status == -1) {
+        DBGLOG("splc", "Could not read backlight value from DSTS method");
+    }
 
-void AsusSMC::writeScreenPadBrightnessValue(uint32_t backlightValue) {
-    if (backlightValue < 0x00 || backlightValue > 0xFF) return;
-    return wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD_LIGHT, backlightValue);
+    uint8_t backlightValue = (status != -1 && isScreenpadEnabled)
+        // Extract backlight value from DSTS status.
+        ? status - 0x01FF00
+        // Fall back to last stored value if WMI method failed.
+        : (screenpadBrightnessLevel / 16) * 0xFF;
+
+    DBGLOG("splc", "Read screenpad brightness level at %d");
+    return backlightValue;
+}
+
+void AsusSMC::writeScreenPadBrightnessValue(uint8_t backlightValue) {
+    if (backlightValue < 0 || backlightValue > 0xFF) return;
+    
+    int status = wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD_LIGHT, backlightValue);
+    if (status == -1) {
+        DBGLOG("splc", "Could not set screenpad backlight");
+        return;
+    }
+
+    // TODO: Write/Read value to/from a persistent IORegistry key
+    DBGLOG("splc", "Set screenpad brightness level to %d");
 }
 
 IOReturn AsusSMC::postKeyboardInputReport(const void *report, uint32_t reportSize) {
