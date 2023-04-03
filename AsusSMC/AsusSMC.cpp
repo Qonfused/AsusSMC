@@ -389,11 +389,12 @@ void AsusSMC::initScreenpadDevice() {
     DBGLOG("splc", "Screenpad backlight %s supported", hasScreenpadBacklight ? "is" : "is not");
 
     // Early return if device capabilities are not fully implemented
-    isScreenpadEnabled = (status && hasScreenpadBacklight);
-    if (!isScreenpadEnabled) return;
+    isScreenpadAvailable = (status && hasScreenpadBacklight);
+    if (!isScreenpadAvailable) return;
 
     // TODO: Handle restoring last connector power state
     // Default: Assume screenpad is powered on after boot
+    isScreenpadEnabled = true;
 
     // Restore screenpad to previous backlight value if it exists
     // TODO: Write/Read value to/from a persistent IORegistry key

@@ -144,6 +144,7 @@ private:
     bool isPanelBackLightOn {true};
     bool isTACHAvailable {false};
     bool isBatteryRSOCAvailable {false};
+    bool isScreenpadAvailable {false};
 
     uint32_t panelBrightnessLevel {16};
     char backlightEntry[1000];
