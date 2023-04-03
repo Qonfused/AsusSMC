@@ -21,6 +21,8 @@
 #define ASUS_WMI_METHODID_DEVS         0x53564544
 #define ASUS_WMI_METHODID_INIT         0x54494E49
 #define ASUS_WMI_DEVID_ALS_ENABLE      0x00050001
+#define ASUS_WMI_DEVID_SCREENPAD       0x00050031
+#define ASUS_WMI_DEVID_SCREENPAD_LIGHT 0x00050032
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
 #define ASUS_WMI_DEVID_RSOC            0x00120057
 #define ASUS_WMI_DSTS_PRESENCE_BIT     0x00010000
@@ -135,11 +137,14 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
+    bool hasScreenpadBacklight {false};
     bool isALSEnabled {true};
     bool isTouchpadEnabled {true};
+    bool isScreenpadEnabled {false};
     bool isPanelBackLightOn {true};
     bool isTACHAvailable {false};
     bool isBatteryRSOCAvailable {false};
+    bool isScreenpadAvailable {false};
 
     uint32_t panelBrightnessLevel {16};
     char backlightEntry[1000];
@@ -148,6 +153,8 @@ private:
     int findBacklightEntry();
     void readPanelBrightnessValue();
 
+    uint32_t screenpadBrightnessLevel {16};
+    
     IOReturn postKeyboardInputReport(const void *report, uint32_t reportSize);
     void dispatchCSMRReport(int code, int loop = 1);
     void dispatchTCReport(int code, int loop = 1);
