@@ -7,7 +7,7 @@
 
 #include "AsusSMC.hpp"
 
-static IOPMPowerState fanPowerStates[] {
+static IOPMPowerState powerStates[] {
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {1, IOPMDeviceUsable, IOPMPowerOn, IOPMPowerOn,
         0, 0, 0, 0, 0, 0, 0, 0}
@@ -26,7 +26,7 @@ bool AsusSMC::init(OSDictionary *dict) {
 
     _notificationServices = OSSet::withCapacity(1);
 
-    kev.setVendorID("com.hieplpvip");
+    kev.setVendorID(AsusSMCEventVendor);
     kev.setEventCode(AsusSMCEventCode);
 
     atomic_init(&currentLux, 0);
@@ -80,7 +80,7 @@ bool AsusSMC::start(IOService *provider) {
 
     initEC0Device();
 
-    initScreenpadDevice();
+    readScreenPadState();
 
     initBattery();
 
@@ -105,9 +105,9 @@ bool AsusSMC::start(IOService *provider) {
 
     PMinit();
     provider->joinPMtree(this);
-    if (registerPowerDriver(this, fanPowerStates, 2) != kIOReturnSuccess) {
+    if (registerPowerDriver(this, powerStates, 2) != kIOReturnSuccess) {
         fanControlSupported = false;
-        SYSLOG("fan", "Failed to register fan power management");
+        SYSLOG("atk", "Failed to register power management");
     }
     setProperty("FanControlSupported", fanControlSupported);
 
@@ -132,7 +132,7 @@ bool AsusSMC::start(IOService *provider) {
 }
 
 void AsusSMC::stop(IOService *provider) {
-    restoreAutomaticFanMode(true);
+    updatePowerState(true);
     PMstop();
 
     if (poller) {
@@ -176,10 +176,17 @@ IOReturn AsusSMC::message(uint32_t type, IOService *provider, void *argument) {
             } else {
                 uint32_t event = *((uint32_t *)argument);
                 OSNumber *arg = OSNumber::withNumber(event, 32);
-                uint32_t res;
-                atkDevice->evaluateInteger("_WED", &res, (OSObject **)&arg, 1);
+                if (arg == nullptr) {
+                    return kIOReturnNoMemory;
+                }
+                uint32_t code;
+                OSObject *args[] {arg};
+                IOReturn ret = atkDevice->evaluateInteger("_WED", &code, args, 1);
                 arg->release();
-                handleMessage(res);
+                if (ret != kIOReturnSuccess) {
+                    return ret;
+                }
+                handleMessage(code);
             }
             break;
         }
@@ -409,31 +416,95 @@ void AsusSMC::initEC0Device() {
     SYSLOG("ec0", "Found EC0 Device %s", ec0Device->getName());
 }
 
-void AsusSMC::initScreenpadDevice() {
-    // Check for screenpad device support
-    bool status = wmi_dev_is_present(ASUS_WMI_DEVID_SCREENPAD);
-    DBGLOG("splc", "Screenpad device %s supported", status ? "is" : "is not");
+int AsusSMC::readScreenPadValue(uint32_t device) {
+    int status = wmi_get_devstate(device);
+    if (status == -1 || !(status & ASUS_WMI_DSTS_PRESENCE_BIT)) {
+        return -1;
+    }
+    return status & 0xff;
+}
 
-    // Check backlight capability
-    hasScreenpadBacklight = wmi_dev_is_present(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
-    setProperty("IsScreenpadBacklightSupported", hasScreenpadBacklight);
-    DBGLOG("splc", "Screenpad backlight %s supported", hasScreenpadBacklight ? "is" : "is not");
+void AsusSMC::readScreenPadState() {
+    int power = readScreenPadValue(ASUS_WMI_DEVID_SCREENPAD);
+    if (power < 0) {
+        if (screenPadSupported) {
+            screenPadPower = -1;
+            removeProperty("ScreenPadEnabled");
+            removeProperty("ScreenPadBrightness");
+        }
+        return;
+    }
 
-    // Early return if device capabilities are not fully implemented
-    isScreenpadAvailable = (status && hasScreenpadBacklight);
-    if (!isScreenpadAvailable) return;
-
-    // TODO: Handle restoring last connector power state
-    // Default: Assume screenpad is powered on after boot
-    isScreenpadEnabled = true;
-
-    // Restore screenpad to previous backlight value if it exists
-    // TODO: Write/Read value to/from a persistent IORegistry key
-    uint32_t previous_backlight = 0x64; // 0x64 is the default value set at boot
-    if (writeScreenPadBrightnessValue(previous_backlight) != -1) {
-        DBGLOG("splc", "Restored last screenpad backlight value (%d)", previous_backlight);
+    // An unlit panel advertises backlight support, but its brightness byte
+    // is meaningful only while powered. Keep the last level while off.
+    int level = readScreenPadValue(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
+    if (!screenPadSupported) {
+        if (level < 0) {
+            return;
+        }
+        screenPadSupported = true;
+        setProperty("ScreenPadSupported", true);
+    }
+    screenPadPower = power != 0;
+    setProperty("ScreenPadEnabled", power != 0);
+    if (power != 0) {
+        screenPadBrightness = level;
+    }
+    if (screenPadBrightness >= 0) {
+        setProperty("ScreenPadBrightness", screenPadBrightness, 8);
     } else {
-        DBGLOG("splc", "Failed to restore last screenpad backlight value");
+        removeProperty("ScreenPadBrightness");
+    }
+}
+
+bool AsusSMC::setScreenPadBrightness(uint8_t level) {
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS,
+            ASUS_WMI_DEVID_SCREENPAD_LIGHT, level) != 1) {
+        SYSLOG("screenpad", "Firmware declined brightness %u", level);
+        return false;
+    }
+    screenPadBrightness = level;
+    setProperty("ScreenPadBrightness", level, 8);
+    return true;
+}
+
+void AsusSMC::setScreenPadPower(bool enabled) {
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS,
+            ASUS_WMI_DEVID_SCREENPAD, enabled ? 1 : 0) != 1) {
+        SYSLOG("screenpad", "Firmware declined power %s",
+            enabled ? "on" : "off");
+        readScreenPadState();
+        return;
+    }
+    screenPadPower = enabled;
+    setProperty("ScreenPadEnabled", enabled);
+    if (enabled && (screenPadBrightness < 0 ||
+            !setScreenPadBrightness(static_cast<uint8_t>(screenPadBrightness)))) {
+        // Power-on may restore the panel's own level if none was available
+        // at boot or firmware declined our second write.
+        readScreenPadState();
+    }
+}
+
+void AsusSMC::cycleScreenPadBrightness() {
+    if (screenPadPower != 1) {
+        return;
+    }
+    int level = screenPadBrightness;
+    if (level < 0) {
+        level = readScreenPadValue(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
+        if (level < 0) {
+            return;
+        }
+    }
+    bool dim = level == ScreenPadMaxBrightness ||
+        (level > 0 && screenPadDimming);
+    int next = dim ? max(0, level - ScreenPadBrightnessStep) :
+        min(ScreenPadMaxBrightness, level + ScreenPadBrightnessStep);
+    if (setScreenPadBrightness(static_cast<uint8_t>(next))) {
+        screenPadDimming = dim;
+        kev.sendMessage(kDaemonScreenPadBrightness, next,
+                        ScreenPadMaxBrightness);
     }
 }
 
@@ -581,7 +652,7 @@ bool AsusSMC::readFanSpeed(uint32_t index, uint32_t &speed) {
 }
 
 void AsusSMC::refreshFan() {
-    if (fansSuspended) {
+    if (suspended) {
         return;
     }
     for (uint32_t i = 0; i < fanCount; ++i) {
@@ -653,38 +724,46 @@ IOReturn AsusSMC::setProperties(OSObject *properties) {
     return command_gate->runAction(
         [](OSObject *owner, void *argument, void *, void *, void *) {
             auto self = static_cast<AsusSMC *>(owner);
-            if (self->fansSuspended) {
+            if (self->suspended) {
                 return kIOReturnNotReady;
             }
             return self->applyFanMode(*static_cast<uint32_t *>(argument));
         }, &requested);
 }
 
-void AsusSMC::restoreAutomaticFanMode(bool suspended) {
+void AsusSMC::updatePowerState(bool sleeping) {
     if (!command_gate) {
         return;
     }
     IOReturn ret = command_gate->runAction(
         [](OSObject *owner, void *argument, void *, void *, void *) {
             auto self = static_cast<AsusSMC *>(owner);
-            self->fansSuspended = *static_cast<bool *>(argument);
+            bool wasSuspended = self->suspended;
+            self->suspended = *static_cast<bool *>(argument);
+            if (self->screenPadSupported && wasSuspended && !self->suspended) {
+                if (self->screenPadPower >= 0) {
+                    self->setScreenPadPower(self->screenPadPower != 0);
+                } else {
+                    self->readScreenPadState();
+                }
+            }
             if (!self->fanControlSupported) {
                 return kIOReturnSuccess;
             }
             return self->applyFanMode(FanModeAutomatic);
-        }, &suspended);
+        }, &sleeping);
     if (ret != kIOReturnSuccess) {
         SYSLOG("fan", "Failed to restore automatic fan control: %x", ret);
     }
 }
 
 IOReturn AsusSMC::setPowerState(unsigned long state, IOService *) {
-    restoreAutomaticFanMode(state == 0);
+    updatePowerState(state == 0);
     return IOPMAckImplied;
 }
 
 void AsusSMC::systemWillShutdown(IOOptionBits specifier) {
-    restoreAutomaticFanMode(true);
+    updatePowerState(true);
     super::systemWillShutdown(specifier);
 }
 
@@ -727,6 +806,31 @@ void AsusSMC::handleMessage(int code) {
         case 0x34: // hardwired Off
         case 0x35: // Soft Event, Fn + F7
             displayOff();
+            break;
+
+        case 0x9C: // Switch Windows button on ScreenPad models
+        case 0x6A: // ScreenPad power button
+            if (command_gate) {
+                command_gate->runAction(
+                    [](OSObject *owner, void *argument, void *, void *, void *) {
+                        auto self = static_cast<AsusSMC *>(owner);
+                        if (self->suspended) {
+                            return kIOReturnNotReady;
+                        }
+                        if (self->screenPadPower < 0) {
+                            self->readScreenPadState();
+                            if (self->screenPadPower < 0) {
+                                return kIOReturnNotReady;
+                            }
+                        }
+                        if (*static_cast<int *>(argument) == 0x9C) {
+                            self->cycleScreenPadBrightness();
+                        } else {
+                            self->setScreenPadPower(self->screenPadPower == 0);
+                        }
+                        return kIOReturnSuccess;
+                    }, &code);
+            }
             break;
 
         case 0x61: // Video Mirror
@@ -799,26 +903,6 @@ void AsusSMC::toggleTouchpad() {
     } else {
         setProperty("IsTouchpadEnabled", false);
         DBGLOG("atk", "Disabled Touchpad");
-    }
-}
-
-void AsusSMC::toggleScreenpad() {
-    bool state = !isScreenpadEnabled;
-
-    // Toggle screenpad connector power
-    int status = wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD, state ? 1 : 0)
-    if (status != -1) {
-        DBGLOG("splc", "%s screenpad connector power", state ? "Restored" : "Disabled");
-        isScreenpadEnabled = state;
-    } else {
-        DBGLOG("splc", "Failed to %s screenpad connector power", state ? "restore" : "disable");
-        return;
-    }
-
-    // Restore screenpad backlight value if power is re-enabled.
-    if (isScreenpadEnabled) {
-        uint8_t backlightValue = readScreenPadBrightnessValue();
-        writeScreenPadBrightnessValue(backlightValue);
     }
 }
 
@@ -944,35 +1028,6 @@ void AsusSMC::readPanelBrightnessValue() {
         }
     }
     OSSafeReleaseNULL(displayDeviceEntry);
-}
-
-uint8_t AsusSMC::readScreenPadBrightnessValue() {
-    int status = wmi_get_devstate(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
-    if (status == -1) {
-        DBGLOG("splc", "Could not read backlight value from DSTS method");
-    }
-
-    uint8_t backlightValue = (status != -1 && isScreenpadEnabled)
-        // Extract backlight value from DSTS status.
-        ? status - 0x01FF00
-        // Fall back to last stored value if WMI method failed.
-        : (screenpadBrightnessLevel / 16) * 0xFF;
-
-    DBGLOG("splc", "Read screenpad brightness level at %d");
-    return backlightValue;
-}
-
-void AsusSMC::writeScreenPadBrightnessValue(uint8_t backlightValue) {
-    if (backlightValue < 0 || backlightValue > 0xFF) return;
-    
-    int status = wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_SCREENPAD_LIGHT, backlightValue);
-    if (status == -1) {
-        DBGLOG("splc", "Could not set screenpad backlight");
-        return;
-    }
-
-    // TODO: Write/Read value to/from a persistent IORegistry key
-    DBGLOG("splc", "Set screenpad brightness level to %d");
 }
 
 IOReturn AsusSMC::postKeyboardInputReport(const void *report, uint32_t reportSize) {

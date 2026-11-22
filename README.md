@@ -14,6 +14,7 @@ A VirtualSMC plugin provides native support for ALS, keyboard backlight and Fn k
 - Full Fn keys support
 - Native ALS support
 - Native keyboard backlight support (16 levels, smooth transition, auto adjusting, auto turning off)
+- ScreenPad Plus brightness and power controls
 - Battery Health Charging
 - Fan speed monitoring and Automatic/Full Speed selection
 
@@ -31,6 +32,12 @@ A VirtualSMC plugin provides native support for ALS, keyboard backlight and Fn k
 #### How to install
 
 - Instruction is available in the Wiki.
+
+#### ScreenPad Plus
+
+On ZenBook Duo models with ScreenPad controls in ASUS WMI, the Switch Windows button cycles the lower display through five brightness steps and reverses direction at either end. The adjacent ScreenPad button turns the display off and restores its brightness when you turn it back on. AsusSMC reads the initial settings from firmware and restores them after sleep.
+
+Install the matching AsusSMCDaemon to see the brightness indicator on the ScreenPad. Both buttons also work before login. If your EFI handles these buttons in ACPI, restore the firmware’s original `_Q31` and `_Q32` methods so AsusSMC can receive their notifications.
 
 #### Fan control
 

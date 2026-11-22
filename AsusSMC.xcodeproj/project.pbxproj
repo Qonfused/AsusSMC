@@ -61,6 +61,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A6C0B527192341EDBB23218F /* AsusSMCMessage.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AsusSMCMessage.h; sourceTree = "<group>"; };
 		4C17428022C85E6E00469B7E /* HIDUsageTables.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HIDUsageTables.h; sourceTree = "<group>"; };
 		4C27D2BF218B647F0089409B /* LICENSE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
 		4C32364A2159051A00700256 /* install_daemon.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = install_daemon.sh; sourceTree = "<group>"; };
@@ -327,6 +328,7 @@
 		4CE3969E22CCAB5C00693C33 /* Global */ = {
 			isa = PBXGroup;
 			children = (
+				A6C0B527192341EDBB23218F /* AsusSMCMessage.h */,
 				4C17428022C85E6E00469B7E /* HIDUsageTables.h */,
 				4C4FE6A52156A4340074AD08 /* HIDReport.hpp */,
 			);

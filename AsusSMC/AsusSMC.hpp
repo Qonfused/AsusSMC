@@ -33,8 +33,6 @@
 
 #define kDeliverNotifications "RM,deliverNotifications"
 
-#define AsusSMCEventCode 0x8102
-
 class AsusSMC : public IOService {
     OSDeclareDefaultStructors(AsusSMC)
 
@@ -87,13 +85,6 @@ private:
     };
 
     enum {
-        kDaemonKeyboardBacklight = 1,
-        kDaemonAirplaneMode = 2,
-        kDaemonSleep = 3,
-        kDaemonTouchpad = 4,
-    };
-
-    enum {
         FanModeAutomatic = 0,
         FanModeFullSpeed = 1
     };
@@ -117,6 +108,11 @@ private:
     void initALSDevice();
     void initEC0Device();
     void initBattery();
+    void readScreenPadState();
+    int readScreenPadValue(uint32_t device);
+    bool setScreenPadBrightness(uint8_t level);
+    void setScreenPadPower(bool enabled);
+    void cycleScreenPadBrightness();
     void initVirtualKeyboard();
 
     void startATKDevice();
@@ -126,7 +122,7 @@ private:
     bool readFanSpeed(uint32_t index, uint32_t &speed);
     void refreshFan();
     IOReturn applyFanMode(uint32_t mode);
-    void restoreAutomaticFanMode(bool suspended);
+    void updatePowerState(bool sleeping);
 
     void handleMessage(int code);
 
@@ -141,7 +137,7 @@ private:
     uint32_t fanCount {1};
     _Atomic(uint32_t) currentFanSpeed[MaxFanCount];
     _Atomic(bool) fanControlSupported = ATOMIC_VAR_INIT(false);
-    bool fansSuspended {false};
+    bool suspended {false};
     bool hasRawTachometer {false};
     bool useRawFanSpeed {false};
 
@@ -158,14 +154,17 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
-    bool hasScreenpadBacklight {false};
+    static constexpr int ScreenPadMaxBrightness = 255;
+    static constexpr int ScreenPadBrightnessStep = ScreenPadMaxBrightness / 5;
+    bool screenPadSupported {false};
+    int screenPadPower {-1}; // -1 when firmware status is unavailable.
+    bool screenPadDimming {true};
+    int screenPadBrightness {-1}; // Firmware cannot report brightness while off.
     bool isALSEnabled {true};
     bool isTouchpadEnabled {true};
-    bool isScreenpadEnabled {false};
     bool isPanelBackLightOn {true};
     bool isTACHAvailable {false};
     bool isBatteryRSOCAvailable {false};
-    bool isScreenpadAvailable {false};
 
     uint32_t panelBrightnessLevel {16};
     char backlightEntry[1000];
@@ -174,8 +173,6 @@ private:
     int findBacklightEntry();
     void readPanelBrightnessValue();
 
-    uint32_t screenpadBrightnessLevel {16};
-    
     IOReturn postKeyboardInputReport(const void *report, uint32_t reportSize);
     void dispatchCSMRReport(int code, int loop = 1);
     void dispatchTCReport(int code, int loop = 1);

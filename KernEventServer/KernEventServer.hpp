@@ -12,12 +12,13 @@ extern "C" {
 #include <sys/kern_event.h>
 }
 #include <IOKit/IOLib.h>
+#include "../Global/AsusSMCMessage.h"
 
 class KernEventServer {
 public:
     bool setVendorID(const char *vendorCode);
     void setEventCode(u_int32_t code);
-    bool sendMessage(int type, int x, int y);
+    bool sendMessage(AsusSMCMessageType type, int x, int y);
 
 private:
     const char *getName();
