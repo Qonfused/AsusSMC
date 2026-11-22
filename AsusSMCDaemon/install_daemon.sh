@@ -1,15 +1,19 @@
-#!/bin/bash
+#!/bin/env bash
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
-# remove AsusFnKeysDaemon
-sudo launchctl unload /Library/LaunchAgents/com.hieplpvip.AsusFnKeysDaemon.plist 2>/dev/null
-sudo pkill -f AsusFnKeysDaemon
-sudo rm /usr/bin/AsusFnKeysDaemon 2>/dev/null
-sudo rm /Library/LaunchAgents/com.hieplpvip.AsusFnKeysDaemon.plist 2>/dev/null
+# Remove AsusFnKeysDaemon
+if [[ -d /usr/bin/AsusFnKeysDaemon ]]; then
+  sudo launchctl unload /Library/LaunchAgents/com.hieplpvip.AsusFnKeysDaemon.plist 2>/dev/null
+  sudo pkill -f AsusFnKeysDaemon
+  sudo rm /usr/bin/AsusFnKeysDaemon 2>/dev/null
+  sudo rm /Library/LaunchAgents/com.hieplpvip.AsusFnKeysDaemon.plist 2>/dev/null
+fi
 
-# remove old AsusSMCDaemon
-sudo launchctl unload /Library/LaunchAgents/com.hieplpvip.AsusSMCDaemon.plist 2>/dev/null
-sudo rm /usr/bin/AsusSMCDaemon 2>/dev/null
+# Remove old AsusSMCDaemon
+if [[ -d /usr/bin/AsusSMCDaemon ]]; then
+  sudo launchctl unload /Library/LaunchAgents/com.hieplpvip.AsusSMCDaemon.plist 2>/dev/null
+  sudo rm /usr/bin/AsusSMCDaemon 2>/dev/null
+fi
 
 sudo mkdir -p /usr/local/bin/
 sudo chmod -R 755 /usr/local/bin/

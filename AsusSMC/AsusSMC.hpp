@@ -10,6 +10,8 @@
 
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOCommandGate.h>
+#include <IOKit/IOUserClient.h>
+#include <IOKit/pwr_mgt/IOPMpowerState.h>
 #include <IOKit/acpi/IOACPIPlatformDevice.h>
 #include "HIDReport.hpp"
 #include "HIDUsageTables.h"
@@ -24,6 +26,7 @@
 #define ASUS_WMI_DEVID_SCREENPAD       0x00050031
 #define ASUS_WMI_DEVID_SCREENPAD_LIGHT 0x00050032
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
+#define ASUS_WMI_DEVID_GPU_FAN_CTRL    0x00110014
 #define ASUS_WMI_DEVID_RSOC            0x00120057
 #define ASUS_WMI_DSTS_PRESENCE_BIT     0x00010000
 #define ASUS_WMI_MGMT_GUID             "97845ED0-4E6D-11DE-8A39-0800200C9A66"
@@ -47,6 +50,9 @@ public:
     void stop(IOService *provider) override;
     IOService *probe(IOService *provider, SInt32 *score) override;
     IOReturn message(uint32_t type, IOService *provider, void *argument) override;
+    IOReturn setProperties(OSObject *properties) override;
+    IOReturn setPowerState(unsigned long state, IOService *device) override;
+    void systemWillShutdown(IOOptionBits specifier) override;
 
     void letSleep();
     void toggleAirplaneMode();
@@ -87,6 +93,11 @@ private:
         kDaemonTouchpad = 4,
     };
 
+    enum {
+        FanModeAutomatic = 0,
+        FanModeFullSpeed = 1
+    };
+
     static constexpr uint32_t SensorUpdateTimeoutMS {1000};
 
     static constexpr uint8_t NOTIFY_BRIGHTNESS_UP_MIN = 0x10;
@@ -111,7 +122,11 @@ private:
     void startATKDevice();
     
     bool refreshALS(bool post);
-    bool refreshFan();
+    void initFans();
+    bool readFanSpeed(uint32_t index, uint32_t &speed);
+    void refreshFan();
+    IOReturn applyFanMode(uint32_t mode);
+    void restoreAutomaticFanMode(bool suspended);
 
     void handleMessage(int code);
 
@@ -122,7 +137,13 @@ private:
 
     ALSForceBits forceBits;
     _Atomic(uint32_t) currentLux = ATOMIC_VAR_INIT(0);
-    _Atomic(uint16_t) currentFanSpeed = ATOMIC_VAR_INIT(0);
+    static constexpr uint32_t MaxFanCount = 2;
+    uint32_t fanCount {1};
+    _Atomic(uint32_t) currentFanSpeed[MaxFanCount];
+    _Atomic(bool) fanControlSupported = ATOMIC_VAR_INIT(false);
+    bool fansSuspended {false};
+    bool hasRawTachometer {false};
+    bool useRawFanSpeed {false};
 
     IONotifier *vsmcNotifier {nullptr};
 

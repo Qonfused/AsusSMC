@@ -46,9 +46,14 @@ SMC_RESULT SMCKBrdBLightValue::update(const SMC_DATA *src)  {
     return SmcSuccess;
 }
 
-SMC_RESULT F0Ac::readAccess() {
-    uint16_t speed = atomic_load_explicit(currentSpeed, memory_order_acquire);
-    *reinterpret_cast<uint16_t *>(data) = VirtualSMCAPI::encodeIntFp(SmcKeyTypeFpe2, speed);
+SMC_RESULT FanSpeed::readAccess() {
+    uint32_t speed = atomic_load_explicit(currentSpeed, memory_order_acquire);
+    if (speed > Fpe2MaxRpm) {
+        return SmcNotReadable;
+    }
+
+    *reinterpret_cast<uint16_t *>(data) =
+        VirtualSMCAPI::encodeIntFp(SmcKeyTypeFpe2, speed);
     return SmcSuccess;
 }
 
