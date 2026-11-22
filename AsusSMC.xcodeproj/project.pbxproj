@@ -19,6 +19,7 @@
 		4C4FE6A82156A4340074AD08 /* HIDReport.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4C4FE6A52156A4340074AD08 /* HIDReport.hpp */; };
 		4C4FE6B62156A4A20074AD08 /* IOBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4FE6B52156A4A20074AD08 /* IOBluetooth.framework */; };
 		4C4FE6B82156A4A70074AD08 /* CoreWLAN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4FE6B72156A4A70074AD08 /* CoreWLAN.framework */; };
+		6EC1B7935C56A4A70074AD08 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6EC1B7925C56A4A70074AD08 /* IOKit.framework */; };
 		4C4FE6BD2156A4FB0074AD08 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 4C4FE6BB2156A4FB0074AD08 /* main.m */; };
 		4C4FE6C02156A5820074AD08 /* KeyImplementations.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4C4FE6BE2156A5820074AD08 /* KeyImplementations.cpp */; };
 		4C4FE6C12156A5820074AD08 /* KeyImplementations.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4C4FE6BF2156A5820074AD08 /* KeyImplementations.hpp */; };
@@ -120,6 +121,7 @@
 		4C4FE6AD2156A4730074AD08 /* AsusSMCDaemon */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = AsusSMCDaemon; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C4FE6B52156A4A20074AD08 /* IOBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOBluetooth.framework; path = System/Library/Frameworks/IOBluetooth.framework; sourceTree = SDKROOT; };
 		4C4FE6B72156A4A70074AD08 /* CoreWLAN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreWLAN.framework; path = System/Library/Frameworks/CoreWLAN.framework; sourceTree = SDKROOT; };
+		6EC1B7925C56A4A70074AD08 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		4C4FE6B92156A4FB0074AD08 /* OSD.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = OSD.h; sourceTree = "<group>"; };
 		4C4FE6BA2156A4FB0074AD08 /* BezelServices.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BezelServices.h; sourceTree = "<group>"; };
 		4C4FE6BB2156A4FB0074AD08 /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 				4C4FCB2A232688390010505E /* AppKit.framework in Frameworks */,
 				4C4FCB282326880C0010505E /* CoreServices.framework in Frameworks */,
 				4C4FE6B82156A4A70074AD08 /* CoreWLAN.framework in Frameworks */,
+				6EC1B7935C56A4A70074AD08 /* IOKit.framework in Frameworks */,
 				4C4FE6B62156A4A20074AD08 /* IOBluetooth.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -320,6 +323,7 @@
 				4C4FCB29232688390010505E /* AppKit.framework */,
 				4C4FCB272326880C0010505E /* CoreServices.framework */,
 				4C4FE6B72156A4A70074AD08 /* CoreWLAN.framework */,
+				6EC1B7925C56A4A70074AD08 /* IOKit.framework */,
 				4C4FE6B52156A4A20074AD08 /* IOBluetooth.framework */,
 			);
 			name = Frameworks;

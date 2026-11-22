@@ -8,6 +8,7 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreWLAN/CoreWLAN.h>
 #import <CoreServices/CoreServices.h>
+#import <IOKit/IOKitLib.h>
 #import <sys/ioctl.h>
 #import <sys/socket.h>
 #import <sys/kern_event.h>
@@ -106,6 +107,46 @@ static CGDirectDisplayID screenPadDisplayID(void) {
     return match;
 }
 
+static bool pointerOnScreenPad(void) {
+    CGEventRef sample = CGEventCreate(NULL);
+    if (!sample)
+        return false;
+    CGPoint point = CGEventGetLocation(sample);
+    CFRelease(sample);
+
+    CGDirectDisplayID displays[2];
+    uint32_t count = 0;
+    if (CGGetDisplaysWithPoint(point, 2, displays, &count) != kCGErrorSuccess ||
+        count != 1)
+        return false;
+    CGDirectDisplayID display = displays[0];
+    return display && !CGDisplayIsInMirrorSet(display) &&
+        !CGDisplayIsAsleep(display) && display == screenPadDisplayID();
+}
+
+static void chooseBrightnessDisplay(io_service_t service, int32_t request) {
+    if (request <= 0)
+        return;
+
+    NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+    if (![session[(__bridge NSString *)kCGSessionOnConsoleKey] boolValue])
+        return;
+
+    bool screenPad = false;
+    if ([session[(__bridge NSString *)kCGSessionLoginDoneKey] boolValue] &&
+        ![session[@"CGSSessionScreenIsLocked"] boolValue] && pointerOnScreenPad()) {
+        CFTypeRef enabled = IORegistryEntryCreateCFProperty(
+            service, CFSTR("ScreenPadEnabled"), kCFAllocatorDefault, 0);
+        screenPad = enabled == kCFBooleanTrue;
+        if (enabled)
+            CFRelease(enabled);
+    }
+
+    int64_t reply = ((int64_t)request << 1) | screenPad;
+    IORegistryEntrySetCFProperty(service, CFSTR(AsusSMCBrightnessRoutingReply),
+                                 (__bridge CFNumberRef)@(reply));
+}
+
 static void showBacklightMeter(CGDirectDisplayID display, int level, int max,
                                BSGraphic bezelImage, OSDGraphic osdImage) {
     if (!display || max <= 0 || level < 0 || level > max)
@@ -189,6 +230,15 @@ int main(int argc, const char *argv[]) {
             return EXIT_FAILURE;
         }
 
+        io_service_t service = IOServiceGetMatchingService(
+            MACH_PORT_NULL, IOServiceMatching("AsusSMC"));
+        if (!service)
+            return EXIT_FAILURE;
+
+        // Subscribe before advertising readiness so the first key can be routed.
+        IORegistryEntrySetCFProperty(service, CFSTR(AsusSMCBrightnessRoutingReady),
+                                     kCFBooleanTrue);
+
         char kextMsg[KEV_MSG_HEADER_SIZE + sizeof(struct AsusSMCMessage)];
         while (YES) {
             ssize_t bytesReceived = recv(systemSocket, kextMsg, sizeof(kextMsg), 0);
@@ -196,6 +246,7 @@ int main(int argc, const char *argv[]) {
                 if (errno == EINTR)
                     continue;
                 perror("recv(SYSPROTO_EVENT)");
+                IOObjectRelease(service);
                 return EXIT_FAILURE;
             }
             if (bytesReceived != sizeof(kextMsg))
@@ -211,6 +262,9 @@ int main(int argc, const char *argv[]) {
                 switch (message->type) {
                     case kDaemonKeyboardBacklight:
                         showKBoardBLightStatus(message->x, message->y);
+                        break;
+                    case kDaemonChooseBrightnessDisplay:
+                        chooseBrightnessDisplay(service, message->x);
                         break;
                     case kDaemonScreenPadBrightness:
                         showBacklightMeter(screenPadDisplayID(),

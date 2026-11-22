@@ -6,6 +6,7 @@
 //
 
 #include "AsusSMC.hpp"
+#include <kern/clock.h>
 
 static IOPMPowerState powerStates[] {
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -508,6 +509,136 @@ void AsusSMC::cycleScreenPadBrightness() {
     }
 }
 
+void AsusSMC::stepScreenPadBrightness(bool brighter) {
+    int level = screenPadBrightness;
+    if (level < 0) {
+        level = readScreenPadValue(ASUS_WMI_DEVID_SCREENPAD_LIGHT);
+        if (level < 0) {
+            return;
+        }
+    }
+    // Firmware can start between detents or at a level set by Switch Windows.
+    int step = (level * BrightnessSteps + ScreenPadMaxBrightness / 2) /
+        ScreenPadMaxBrightness;
+    step = brighter ? min(step + 1, BrightnessSteps) : max(step - 1, 0);
+    int next = (step * ScreenPadMaxBrightness + BrightnessSteps / 2) /
+        BrightnessSteps;
+    if (next == level || setScreenPadBrightness(static_cast<uint8_t>(next))) {
+        kev.sendMessage(kDaemonScreenPadBrightness, step, BrightnessSteps);
+    }
+}
+
+void AsusSMC::handleBrightnessKey(bool brighter) {
+    if (command_gate && command_gate->runAction(
+            [](OSObject *owner, void *arg, void *, void *, void *) {
+                return static_cast<AsusSMC *>(owner)->routeBrightnessKey(
+                    *static_cast<bool *>(arg));
+            }, &brighter) == kIOReturnSuccess) {
+        return;
+    }
+    dispatchTCReport(brighter ? kHIDUsage_AV_TopCase_BrightnessUp :
+                                kHIDUsage_AV_TopCase_BrightnessDown);
+}
+
+IOReturn AsusSMC::routeBrightnessKey(bool brighter) {
+    if (suspended) {
+        return kIOReturnSuccess;
+    }
+    if (brightnessAgent == BrightnessAgent::Offline || !screenPadSupported ||
+        screenPadPower != 1) {
+        return kIOReturnUnsupported;
+    }
+
+    auto locked = IORegistryEntry::getRegistryRoot()->copyProperty(
+        "IOConsoleLocked");
+    bool atDesktop = locked == kOSBooleanFalse;
+    OSSafeReleaseNULL(locked);
+    if (!atDesktop) {
+        return kIOReturnUnsupported;
+    }
+
+    brightnessRequestID = (brightnessRequestID % INT32_MAX) + 1;
+    if (brightnessAgent == BrightnessAgent::Unresponsive) {
+        // A late reply can rearm routing for the next key. This press goes
+        // straight to macOS while the agent is unavailable.
+        kev.sendMessage(kDaemonChooseBrightnessDisplay, brightnessRequestID, 0);
+        return kIOReturnUnsupported;
+    }
+    BrightnessRequest request {};
+    request.id = brightnessRequestID;
+    LIST_INSERT_HEAD(&brightnessRequests, &request, link);
+
+    // Release the gate while the login agent checks the pointer. If it has
+    // exited or cannot reply promptly, this press takes the native HID path.
+    uint64_t deadline;
+    clock_interval_to_deadline(100, kMillisecondScale, &deadline);
+    if (kev.sendMessage(kDaemonChooseBrightnessDisplay, request.id, 0)) {
+        while (!request.answered && !suspended) {
+            if (command_gate->commandSleep(&request, deadline, THREAD_UNINT) !=
+                THREAD_AWAKENED) {
+                break;
+            }
+        }
+    }
+    LIST_REMOVE(&request, link);
+    if (!request.answered && request.id == brightnessRequestID) {
+        brightnessAgent = BrightnessAgent::Unresponsive;
+    }
+    if (suspended) {
+        return kIOReturnSuccess;
+    }
+    if (!request.screenPad || screenPadPower != 1) {
+        return kIOReturnUnsupported;
+    }
+    stepScreenPadBrightness(brighter);
+    return kIOReturnSuccess;
+}
+
+IOReturn AsusSMC::acceptBrightnessReply(OSDictionary *properties) {
+    OSObject *ready = properties->getObject(AsusSMCBrightnessRoutingReady);
+    auto reply = OSDynamicCast(OSNumber,
+        properties->getObject(AsusSMCBrightnessRoutingReply));
+    if (properties->getCount() != 1 || (ready && ready != kOSBooleanTrue) ||
+        (!ready && (reply == nullptr || reply->unsigned64BitValue() < 2 ||
+                    reply->unsigned64BitValue() > UINT32_MAX))) {
+        return kIOReturnBadArgument;
+    }
+    // Only the active GUI session may choose a display for a physical press.
+    if (IOUserClient::clientHasPrivilege(current_task(),
+            ready ? kIOClientPrivilegeLocalUser : "consolesession") !=
+        kIOReturnSuccess) {
+        return kIOReturnNotPrivileged;
+    }
+    if (!command_gate) {
+        return kIOReturnNotReady;
+    }
+    uint32_t value = ready ? 0 : reply->unsigned32BitValue();
+    return command_gate->runAction(
+        [](OSObject *owner, void *arg, void *, void *, void *) {
+            auto self = static_cast<AsusSMC *>(owner);
+            uint32_t reply = *static_cast<uint32_t *>(arg);
+            if (reply == 0) {
+                self->brightnessAgent = BrightnessAgent::Ready;
+                return kIOReturnSuccess;
+            }
+            BrightnessRequest *request;
+            LIST_FOREACH(request, &self->brightnessRequests, link) {
+                if (request->id == (reply >> 1) && !request->answered) {
+                    self->brightnessAgent = BrightnessAgent::Ready;
+                    request->screenPad = (reply & 1) != 0;
+                    request->answered = true;
+                    self->command_gate->commandWakeup(request);
+                    return kIOReturnSuccess;
+                }
+            }
+            if (self->brightnessAgent == BrightnessAgent::Unresponsive &&
+                self->brightnessRequestID == (reply >> 1)) {
+                self->brightnessAgent = BrightnessAgent::Ready;
+            }
+            return kIOReturnNotFound;
+        }, &value);
+}
+
 void AsusSMC::initBattery() {
     // Battery Health was introduced in 10.15.5
     // Check if we're on 10.15.5+
@@ -704,6 +835,10 @@ IOReturn AsusSMC::applyFanMode(uint32_t mode) {
 
 IOReturn AsusSMC::setProperties(OSObject *properties) {
     auto dict = OSDynamicCast(OSDictionary, properties);
+    if (dict && (dict->getObject(AsusSMCBrightnessRoutingReady) ||
+                 dict->getObject(AsusSMCBrightnessRoutingReply))) {
+        return acceptBrightnessReply(dict);
+    }
     OSObject *value = dict ? dict->getObject("FanMode") : nullptr;
     if (!value) {
         return super::setProperties(properties);
@@ -740,6 +875,14 @@ void AsusSMC::updatePowerState(bool sleeping) {
             auto self = static_cast<AsusSMC *>(owner);
             bool wasSuspended = self->suspended;
             self->suspended = *static_cast<bool *>(argument);
+            if (self->suspended) {
+                BrightnessRequest *request;
+                LIST_FOREACH(request, &self->brightnessRequests, link) {
+                    request->answered = true;
+                    request->screenPad = false;
+                    self->command_gate->commandWakeup(request);
+                }
+            }
             if (self->screenPadSupported && wasSuspended && !self->suspended) {
                 if (self->screenPadPower >= 0) {
                     self->setScreenPadPower(self->screenPadPower != 0);
@@ -874,10 +1017,13 @@ void AsusSMC::handleMessage(int code) {
             break;
 
         default:
-            if (code >= NOTIFY_BRIGHTNESS_DOWN_MIN && code<= NOTIFY_BRIGHTNESS_DOWN_MAX) // Brightness Down
-                dispatchTCReport(kHIDUsage_AV_TopCase_BrightnessDown);
-            else if (code >= NOTIFY_BRIGHTNESS_UP_MIN && code<= NOTIFY_BRIGHTNESS_UP_MAX) // Brightness Up
-                dispatchTCReport(kHIDUsage_AV_TopCase_BrightnessUp);
+            if (code >= NOTIFY_BRIGHTNESS_DOWN_MIN &&
+                code <= NOTIFY_BRIGHTNESS_DOWN_MAX) {
+                handleBrightnessKey(false);
+            } else if (code >= NOTIFY_BRIGHTNESS_UP_MIN &&
+                       code <= NOTIFY_BRIGHTNESS_UP_MAX) {
+                handleBrightnessKey(true);
+            }
             break;
     }
 

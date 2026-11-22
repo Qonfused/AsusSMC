@@ -5,13 +5,17 @@
 
 #define AsusSMCEventVendor "com.hieplpvip"
 #define AsusSMCEventCode 0x8102
+#define AsusSMCBrightnessRoutingReady "BrightnessRoutingReady"
+#define AsusSMCBrightnessRoutingReply "BrightnessRoutingReply"
 
 enum AsusSMCMessageType {
     kDaemonKeyboardBacklight = 1,
     kDaemonAirplaneMode = 2,
     kDaemonSleep = 3,
     kDaemonTouchpad = 4,
-    kDaemonScreenPadBrightness = 5
+    kDaemonScreenPadBrightness = 5,
+    // x identifies the press. Reply with (x << 1) | pointerIsOnScreenPad.
+    kDaemonChooseBrightnessDisplay = 6
 };
 
 struct AsusSMCMessage {

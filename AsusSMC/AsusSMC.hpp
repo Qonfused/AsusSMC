@@ -8,6 +8,7 @@
 #ifndef _AsusSMC_hpp
 #define _AsusSMC_hpp
 
+#include <sys/queue.h>
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOUserClient.h>
@@ -113,6 +114,10 @@ private:
     bool setScreenPadBrightness(uint8_t level);
     void setScreenPadPower(bool enabled);
     void cycleScreenPadBrightness();
+    void stepScreenPadBrightness(bool brighter);
+    void handleBrightnessKey(bool brighter);
+    IOReturn routeBrightnessKey(bool brighter);
+    IOReturn acceptBrightnessReply(OSDictionary *properties);
     void initVirtualKeyboard();
 
     void startATKDevice();
@@ -156,6 +161,17 @@ private:
     bool hasKeyboardBacklight {false};
     static constexpr int ScreenPadMaxBrightness = 255;
     static constexpr int ScreenPadBrightnessStep = ScreenPadMaxBrightness / 5;
+    static constexpr int BrightnessSteps = 16;
+    struct BrightnessRequest {
+        LIST_ENTRY(BrightnessRequest) link;
+        uint32_t id;
+        bool answered;
+        bool screenPad;
+    };
+    LIST_HEAD(, BrightnessRequest) brightnessRequests {};
+    uint32_t brightnessRequestID {0};
+    enum class BrightnessAgent { Offline, Ready, Unresponsive };
+    BrightnessAgent brightnessAgent {BrightnessAgent::Offline};
     bool screenPadSupported {false};
     int screenPadPower {-1}; // -1 when firmware status is unavailable.
     bool screenPadDimming {true};
