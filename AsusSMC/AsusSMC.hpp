@@ -8,6 +8,7 @@
 #ifndef _AsusSMC_hpp
 #define _AsusSMC_hpp
 
+#include <sys/queue.h>
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOUserClient.h>
@@ -23,6 +24,8 @@
 #define ASUS_WMI_METHODID_DEVS         0x53564544
 #define ASUS_WMI_METHODID_INIT         0x54494E49
 #define ASUS_WMI_DEVID_ALS_ENABLE      0x00050001
+#define ASUS_WMI_DEVID_SCREENPAD       0x00050031
+#define ASUS_WMI_DEVID_SCREENPAD_LIGHT 0x00050032
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
 #define ASUS_WMI_DEVID_GPU_FAN_CTRL    0x00110014
 #define ASUS_WMI_DEVID_RSOC            0x00120057
@@ -30,8 +33,6 @@
 #define ASUS_WMI_MGMT_GUID             "97845ED0-4E6D-11DE-8A39-0800200C9A66"
 
 #define kDeliverNotifications "RM,deliverNotifications"
-
-#define AsusSMCEventCode 0x8102
 
 class AsusSMC : public IOService {
     OSDeclareDefaultStructors(AsusSMC)
@@ -85,13 +86,6 @@ private:
     };
 
     enum {
-        kDaemonKeyboardBacklight = 1,
-        kDaemonAirplaneMode = 2,
-        kDaemonSleep = 3,
-        kDaemonTouchpad = 4,
-    };
-
-    enum {
         FanModeAutomatic = 0,
         FanModeFullSpeed = 1
     };
@@ -115,6 +109,15 @@ private:
     void initALSDevice();
     void initEC0Device();
     void initBattery();
+    void readScreenPadState();
+    int readScreenPadValue(uint32_t device);
+    bool setScreenPadBrightness(uint8_t level);
+    void setScreenPadPower(bool enabled);
+    void cycleScreenPadBrightness();
+    void stepScreenPadBrightness(bool brighter);
+    void handleBrightnessKey(bool brighter);
+    IOReturn routeBrightnessKey(bool brighter);
+    IOReturn acceptBrightnessReply(OSDictionary *properties);
     void initVirtualKeyboard();
 
     void startATKDevice();
@@ -124,7 +127,7 @@ private:
     bool readFanSpeed(uint32_t index, uint32_t &speed);
     void refreshFan();
     IOReturn applyFanMode(uint32_t mode);
-    void restoreAutomaticFanMode(bool suspended);
+    void updatePowerState(bool sleeping);
 
     void handleMessage(int code);
 
@@ -139,7 +142,7 @@ private:
     uint32_t fanCount {1};
     _Atomic(uint32_t) currentFanSpeed[MaxFanCount];
     _Atomic(bool) fanControlSupported = ATOMIC_VAR_INIT(false);
-    bool fansSuspended {false};
+    bool suspended {false};
     bool hasRawTachometer {false};
     bool useRawFanSpeed {false};
 
@@ -156,6 +159,23 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
+    static constexpr int ScreenPadMaxBrightness = 255;
+    static constexpr int ScreenPadBrightnessStep = ScreenPadMaxBrightness / 5;
+    static constexpr int BrightnessSteps = 16;
+    struct BrightnessRequest {
+        LIST_ENTRY(BrightnessRequest) link;
+        uint32_t id;
+        bool answered;
+        bool screenPad;
+    };
+    LIST_HEAD(, BrightnessRequest) brightnessRequests {};
+    uint32_t brightnessRequestID {0};
+    enum class BrightnessAgent { Offline, Ready, Unresponsive };
+    BrightnessAgent brightnessAgent {BrightnessAgent::Offline};
+    bool screenPadSupported {false};
+    int screenPadPower {-1}; // -1 when firmware status is unavailable.
+    bool screenPadDimming {true};
+    int screenPadBrightness {-1}; // Firmware cannot report brightness while off.
     bool isALSEnabled {true};
     bool isTouchpadEnabled {true};
     bool isPanelBackLightOn {true};

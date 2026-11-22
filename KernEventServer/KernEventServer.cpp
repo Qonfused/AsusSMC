@@ -20,36 +20,15 @@ void KernEventServer::setEventCode(u_int32_t code) {
     eventCode = code;
 }
 
-bool KernEventServer::sendMessage(int type, int x, int y) {
-    // kernel event message
-    struct kev_msg kEventMsg = {0};
-
-    // zero out kernel message
-    bzero(&kEventMsg, sizeof(struct kev_msg));
-
-    // set vendor code
+bool KernEventServer::sendMessage(AsusSMCMessageType type, int x, int y) {
+    AsusSMCMessage message {type, x, y};
+    struct kev_msg kEventMsg {};
     kEventMsg.vendor_code = vendorID;
-
-    // set class
     kEventMsg.kev_class = KEV_ANY_CLASS;
-
-    // set subclass
     kEventMsg.kev_subclass = KEV_ANY_SUBCLASS;
-
-    // set event code
     kEventMsg.event_code = eventCode;
-
-    // type
-    kEventMsg.dv[0].data_length = sizeof(int);
-    kEventMsg.dv[0].data_ptr = &type;
-
-    // x
-    kEventMsg.dv[1].data_length = sizeof(int);
-    kEventMsg.dv[1].data_ptr = &x;
-
-    // y
-    kEventMsg.dv[2].data_length = sizeof(int);
-    kEventMsg.dv[2].data_ptr = &y;
+    kEventMsg.dv[0].data_length = sizeof(message);
+    kEventMsg.dv[0].data_ptr = &message;
 
     if (KERN_SUCCESS != kev_msg_post(&kEventMsg)) {
         DBGLOG("kevserver", "sendMessage error");
