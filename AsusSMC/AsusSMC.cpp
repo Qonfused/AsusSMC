@@ -7,6 +7,12 @@
 
 #include "AsusSMC.hpp"
 
+static IOPMPowerState fanPowerStates[] {
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    {1, IOPMDeviceUsable, IOPMPowerOn, IOPMPowerOn,
+        0, 0, 0, 0, 0, 0, 0, 0}
+};
+
 bool ADDPR(debugEnabled) = false;
 uint32_t ADDPR(debugPrintDelay) = 0;
 
@@ -95,6 +101,14 @@ bool AsusSMC::start(IOService *provider) {
 
     initFans();
 
+    PMinit();
+    provider->joinPMtree(this);
+    if (registerPowerDriver(this, fanPowerStates, 2) != kIOReturnSuccess) {
+        fanControlSupported = false;
+        SYSLOG("fan", "Failed to register fan power management");
+    }
+    setProperty("FanControlSupported", fanControlSupported);
+
     setProperty("IsTouchpadEnabled", true);
     setProperty("Copyright", "Copyright © 2018-2020 Le Bao Hiep. All rights reserved.");
 
@@ -116,6 +130,9 @@ bool AsusSMC::start(IOService *provider) {
 }
 
 void AsusSMC::stop(IOService *provider) {
+    restoreAutomaticFanMode(true);
+    PMstop();
+
     if (poller) {
         poller->cancelTimeout();
     }
@@ -143,11 +160,15 @@ void AsusSMC::stop(IOService *provider) {
 }
 
 IOReturn AsusSMC::message(uint32_t type, IOService *provider, void *argument) {
-    DBGLOG("atk", "Received message: %u Type %x Provider %s", *((uint32_t *)argument), type, provider ? provider->getName() : "unknown");
+    DBGLOG("atk", "Message %x from %s", type,
+           provider ? provider->getName() : "unknown");
 
     switch (type) {
         case kIOACPIMessageDeviceNotification:
         {
+            if (argument == nullptr) {
+                return kIOReturnBadArgument;
+            }
             if (directACPImessaging) {
                 handleMessage(*((uint32_t *)argument));
             } else {
@@ -163,6 +184,9 @@ IOReturn AsusSMC::message(uint32_t type, IOService *provider, void *argument) {
 
         case kSetKeyboardBacklightMessage:
         {
+            if (argument == nullptr) {
+                return kIOReturnBadArgument;
+            }
             if (hasKeyboardBacklight) {
                 OSNumber *arg = OSNumber::withNumber(*((uint16_t *)argument) / 16, 16);
                 atkDevice->evaluateObject("SKBV", NULL, (OSObject **)&arg, 1);
@@ -172,7 +196,7 @@ IOReturn AsusSMC::message(uint32_t type, IOService *provider, void *argument) {
         }
 
         default:
-            return kIOReturnInvalid;
+            return super::message(type, provider, argument);
     }
     return kIOReturnSuccess;
 }
@@ -471,6 +495,11 @@ void AsusSMC::initFans() {
         (isTACHAvailable ? "TACH" : "WMI"));
     setProperty("FanCount", fanCount, 32);
     refreshFan();
+    fanControlSupported = wmi_dev_is_present(ASUS_WMI_DEVID_CPU_FAN_CTRL);
+    if (fanControlSupported &&
+        applyFanMode(FanModeAutomatic) != kIOReturnSuccess) {
+        SYSLOG("fan", "Automatic fan control is not ready at startup");
+    }
 }
 
 bool AsusSMC::readFanSpeed(uint32_t index, uint32_t &speed) {
@@ -522,6 +551,9 @@ bool AsusSMC::readFanSpeed(uint32_t index, uint32_t &speed) {
 }
 
 void AsusSMC::refreshFan() {
+    if (fansSuspended) {
+        return;
+    }
     for (uint32_t i = 0; i < fanCount; ++i) {
         uint32_t speed = InvalidFanSpeed;
         if (!readFanSpeed(i, speed)) {
@@ -537,6 +569,93 @@ void AsusSMC::refreshFan() {
             setProperty(property, speed, 32);
         }
     }
+}
+
+IOReturn AsusSMC::applyFanMode(uint32_t mode) {
+    if (!fanControlSupported) {
+        return kIOReturnUnsupported;
+    }
+    if (mode > FanModeFullSpeed) {
+        return kIOReturnBadArgument;
+    }
+
+    // Some firmware returns success even when its ECAV guard skips the write.
+    if (ec0Device &&
+        ec0Device->validateObject("ECAV") == kIOReturnSuccess) {
+        uint32_t ready = 0;
+        bool available =
+            ec0Device->evaluateInteger("ECAV", &ready) == kIOReturnSuccess &&
+            ready != 0;
+        setProperty("FanECReady", available);
+        if (!available) {
+            return kIOReturnNotReady;
+        }
+    }
+
+    int result = wmi_evaluate_method(ASUS_WMI_METHODID_DEVS,
+                                    ASUS_WMI_DEVID_CPU_FAN_CTRL, mode);
+    if (result != 1) {
+        return kIOReturnIOError;
+    }
+    setProperty("FanMode", mode, 32);
+    return kIOReturnSuccess;
+}
+
+IOReturn AsusSMC::setProperties(OSObject *properties) {
+    auto dict = OSDynamicCast(OSDictionary, properties);
+    OSObject *value = dict ? dict->getObject("FanMode") : nullptr;
+    if (!value) {
+        return super::setProperties(properties);
+    }
+    auto mode = OSDynamicCast(OSNumber, value);
+    if (mode == nullptr || mode->unsigned64BitValue() > FanModeFullSpeed) {
+        return kIOReturnBadArgument;
+    }
+    if (IOUserClient::clientHasPrivilege(current_task(),
+        kIOClientPrivilegeAdministrator) != kIOReturnSuccess) {
+        return kIOReturnNotPrivileged;
+    }
+    if (!command_gate) {
+        return kIOReturnNotReady;
+    }
+
+    uint32_t requested = mode->unsigned32BitValue();
+    return command_gate->runAction(
+        [](OSObject *owner, void *argument, void *, void *, void *) {
+            auto self = static_cast<AsusSMC *>(owner);
+            if (self->fansSuspended) {
+                return kIOReturnNotReady;
+            }
+            return self->applyFanMode(*static_cast<uint32_t *>(argument));
+        }, &requested);
+}
+
+void AsusSMC::restoreAutomaticFanMode(bool suspended) {
+    if (!command_gate) {
+        return;
+    }
+    IOReturn ret = command_gate->runAction(
+        [](OSObject *owner, void *argument, void *, void *, void *) {
+            auto self = static_cast<AsusSMC *>(owner);
+            self->fansSuspended = *static_cast<bool *>(argument);
+            if (!self->fanControlSupported) {
+                return kIOReturnSuccess;
+            }
+            return self->applyFanMode(FanModeAutomatic);
+        }, &suspended);
+    if (ret != kIOReturnSuccess) {
+        SYSLOG("fan", "Failed to restore automatic fan control: %x", ret);
+    }
+}
+
+IOReturn AsusSMC::setPowerState(unsigned long state, IOService *) {
+    restoreAutomaticFanMode(state == 0);
+    return IOPMAckImplied;
+}
+
+void AsusSMC::systemWillShutdown(IOOptionBits specifier) {
+    restoreAutomaticFanMode(true);
+    super::systemWillShutdown(specifier);
 }
 
 void AsusSMC::handleMessage(int code) {

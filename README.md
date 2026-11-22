@@ -15,7 +15,7 @@ A VirtualSMC plugin provides native support for ALS, keyboard backlight and Fn k
 - Native ALS support
 - Native keyboard backlight support (16 levels, smooth transition, auto adjusting, auto turning off)
 - Battery Health Charging
-- Fan speed monitoring
+- Fan speed monitoring and Automatic/Full Speed selection
 
 #### Requirements
 
@@ -31,6 +31,27 @@ A VirtualSMC plugin provides native support for ALS, keyboard backlight and Fn k
 #### How to install
 
 - Instruction is available in the Wiki.
+
+#### Fan control
+
+AsusSMC can select Automatic or Full Speed when firmware provides the ASUS WMI CPU fan-control interface. Automatic lets firmware adjust speed according to temperature, while Full Speed requests maximum speed. Which fans respond depends on the firmware implementation.
+
+After building AsusSMC, compile `fanctl`:
+
+```sh
+clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=10.11 \
+  Tools/fanctl.c -framework IOKit -framework CoreFoundation -o build/fanctl
+```
+
+Read fan speeds and the last mode accepted by firmware, or change the mode as an administrator:
+
+```sh
+build/fanctl status
+sudo build/fanctl full
+sudo build/fanctl auto
+```
+
+AsusSMC requests Automatic during startup, sleep, wake, and shutdown. See [Fan monitoring and control](docs/fan-control.md) for firmware requirements, RPM configuration, and hardware validation.
 
 #### Credits
 

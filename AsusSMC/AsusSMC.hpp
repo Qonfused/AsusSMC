@@ -10,6 +10,8 @@
 
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOCommandGate.h>
+#include <IOKit/IOUserClient.h>
+#include <IOKit/pwr_mgt/IOPMpowerState.h>
 #include <IOKit/acpi/IOACPIPlatformDevice.h>
 #include "HIDReport.hpp"
 #include "HIDUsageTables.h"
@@ -46,6 +48,9 @@ public:
     void stop(IOService *provider) override;
     IOService *probe(IOService *provider, SInt32 *score) override;
     IOReturn message(uint32_t type, IOService *provider, void *argument) override;
+    IOReturn setProperties(OSObject *properties) override;
+    IOReturn setPowerState(unsigned long state, IOService *device) override;
+    void systemWillShutdown(IOOptionBits specifier) override;
 
     void letSleep();
     void toggleAirplaneMode();
@@ -86,6 +91,11 @@ private:
         kDaemonTouchpad = 4,
     };
 
+    enum {
+        FanModeAutomatic = 0,
+        FanModeFullSpeed = 1
+    };
+
     static constexpr uint32_t SensorUpdateTimeoutMS {1000};
 
     static constexpr uint8_t NOTIFY_BRIGHTNESS_UP_MIN = 0x10;
@@ -113,6 +123,8 @@ private:
     void initFans();
     bool readFanSpeed(uint32_t index, uint32_t &speed);
     void refreshFan();
+    IOReturn applyFanMode(uint32_t mode);
+    void restoreAutomaticFanMode(bool suspended);
 
     void handleMessage(int code);
 
@@ -126,6 +138,8 @@ private:
     static constexpr uint32_t MaxFanCount = 2;
     uint32_t fanCount {1};
     _Atomic(uint32_t) currentFanSpeed[MaxFanCount];
+    _Atomic(bool) fanControlSupported = ATOMIC_VAR_INIT(false);
+    bool fansSuspended {false};
     bool hasRawTachometer {false};
     bool useRawFanSpeed {false};
 
