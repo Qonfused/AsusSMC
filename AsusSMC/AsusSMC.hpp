@@ -22,6 +22,7 @@
 #define ASUS_WMI_METHODID_INIT         0x54494E49
 #define ASUS_WMI_DEVID_ALS_ENABLE      0x00050001
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
+#define ASUS_WMI_DEVID_GPU_FAN_CTRL    0x00110014
 #define ASUS_WMI_DEVID_RSOC            0x00120057
 #define ASUS_WMI_DSTS_PRESENCE_BIT     0x00010000
 #define ASUS_WMI_MGMT_GUID             "97845ED0-4E6D-11DE-8A39-0800200C9A66"
@@ -109,7 +110,9 @@ private:
     void startATKDevice();
     
     bool refreshALS(bool post);
-    bool refreshFan();
+    void initFans();
+    bool readFanSpeed(uint32_t index, uint32_t &speed);
+    void refreshFan();
 
     void handleMessage(int code);
 
@@ -120,7 +123,11 @@ private:
 
     ALSForceBits forceBits;
     _Atomic(uint32_t) currentLux = ATOMIC_VAR_INIT(0);
-    _Atomic(uint16_t) currentFanSpeed = ATOMIC_VAR_INIT(0);
+    static constexpr uint32_t MaxFanCount = 2;
+    uint32_t fanCount {1};
+    _Atomic(uint32_t) currentFanSpeed[MaxFanCount];
+    bool hasRawTachometer {false};
+    bool useRawFanSpeed {false};
 
     IONotifier *vsmcNotifier {nullptr};
 

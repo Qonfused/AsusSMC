@@ -25,8 +25,8 @@ static constexpr SMC_KEY KeyLKSS = SMC_MAKE_IDENTIFIER('L','K','S','S');
 static constexpr SMC_KEY KeyMSLD = SMC_MAKE_IDENTIFIER('M','S','L','D');
 
 static constexpr SMC_KEY KeyFNum = SMC_MAKE_IDENTIFIER('F','N','u','m');
-static constexpr SMC_KEY KeyF0ID = SMC_MAKE_IDENTIFIER('F','0','I','D');
-static constexpr SMC_KEY KeyF0Ac = SMC_MAKE_IDENTIFIER('F','0','A','c');
+static constexpr uint32_t InvalidFanSpeed = UINT32_MAX;
+static constexpr uint32_t Fpe2MaxRpm = UINT16_MAX >> 2;
 
 static constexpr SMC_KEY KeyBDVT = SMC_MAKE_IDENTIFIER('B','D','V','T');
 
@@ -121,14 +121,14 @@ public:
     SMCKBrdBLightValue(IOService *asusSMCInstance): asusSMCInstance(asusSMCInstance) {}
 };
 
-class F0Ac : public VirtualSMCValue {
-    _Atomic(uint16_t) *currentSpeed;
+class FanSpeed : public VirtualSMCValue {
+    _Atomic(uint32_t) *currentSpeed;
 
 protected:
     SMC_RESULT readAccess() override;
 
 public:
-    F0Ac(_Atomic(uint16_t) *currentSpeed) : currentSpeed(currentSpeed) {}
+    FanSpeed(_Atomic(uint32_t) *speed) : currentSpeed(speed) {}
 };
 
 class BDVT : public VirtualSMCValue {

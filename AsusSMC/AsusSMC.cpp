@@ -24,7 +24,9 @@ bool AsusSMC::init(OSDictionary *dict) {
     kev.setEventCode(AsusSMCEventCode);
 
     atomic_init(&currentLux, 0);
-    atomic_init(&currentFanSpeed, 0);
+    for (uint32_t i = 0; i < MaxFanCount; ++i) {
+        atomic_init(&currentFanSpeed[i], InvalidFanSpeed);
+    }
 
     return true;
 }
@@ -90,6 +92,8 @@ bool AsusSMC::start(IOService *provider) {
         DBGLOG("atk", "Could not open command gate");
         return false;
     }
+
+    initFans();
 
     setProperty("IsTouchpadEnabled", true);
     setProperty("Copyright", "Copyright © 2018-2020 Le Bao Hiep. All rights reserved.");
@@ -367,12 +371,15 @@ void AsusSMC::initEC0Device() {
         return;
     }
 
-    if (ec0Device->validateObject("TACH") != kIOReturnSuccess || !refreshFan()) {
+    hasRawTachometer =
+        ec0Device->validateObject("RTAH") == kIOReturnSuccess &&
+        ec0Device->validateObject("ECAV") == kIOReturnSuccess;
+
+    if (ec0Device->validateObject("TACH") != kIOReturnSuccess) {
         SYSLOG("ec0", "No functional method TACH on EC0 device");
         isTACHAvailable = false;
         return;
     }
-
     SYSLOG("ec0", "Found EC0 Device %s", ec0Device->getName());
 }
 
@@ -442,7 +449,6 @@ bool AsusSMC::refreshALS(bool post) {
 
     if (post) {
         VirtualSMCAPI::postInterrupt(SmcEventALSChange);
-        poller->setTimeoutMS(SensorUpdateTimeoutMS);
     }
 
     DBGLOG("als", "refreshALS lux %u", lux);
@@ -450,33 +456,87 @@ bool AsusSMC::refreshALS(bool post) {
     return ret == kIOReturnSuccess;
 }
 
-bool AsusSMC::refreshFan() {
-    uint32_t speed = 10000;
-
-    if (isTACHAvailable) {
-        OSNumber *arg = OSNumber::withNumber(static_cast<uint32_t>(0), 32);
-        IOReturn ret = ec0Device->evaluateInteger("TACH", &speed, (OSObject **)&arg, 1);
-        arg->release();
-
-        if (ret != kIOReturnSuccess) {
-            DBGLOG("fan", "read fan speed using TACH failed");
-            speed = 10000;
-        }
-    } else {
-        int ret = wmi_get_devstate(ASUS_WMI_DEVID_CPU_FAN_CTRL);
-        if (ret == -1) {
-            DBGLOG("fan", "read fan speed using WMI failed");
-            speed = 10000;
-        } else {
-            speed = (ret & 0xffff) * 100;
-        }
+void AsusSMC::initFans() {
+    PE_parse_boot_argn("asussmcfans", &fanCount, sizeof(fanCount));
+    if (fanCount == 0 || fanCount > MaxFanCount) {
+        SYSLOG("fan", "asussmcfans must be 1 or 2");
+        fanCount = 1;
     }
 
-    atomic_store_explicit(&currentFanSpeed, speed, memory_order_release);
+    useRawFanSpeed = checkKernelArgument("-asussmcrawfan");
+    if (useRawFanSpeed && !hasRawTachometer) {
+        SYSLOG("fan", "-asussmcrawfan requires RTAH and ECAV methods");
+    }
+    setProperty("FanSpeedMethod", useRawFanSpeed ? "RTAH" :
+        (isTACHAvailable ? "TACH" : "WMI"));
+    setProperty("FanCount", fanCount, 32);
+    refreshFan();
+}
 
-    DBGLOG("fan", "refreshFan speed %u", speed);
+bool AsusSMC::readFanSpeed(uint32_t index, uint32_t &speed) {
+    if (useRawFanSpeed) {
+        uint32_t available = 0;
+        if (!hasRawTachometer ||
+            ec0Device->evaluateInteger("ECAV", &available) !=
+                kIOReturnSuccess ||
+            available == 0) {
+            return false;
+        }
+    } else if (!isTACHAvailable) {
+        uint32_t id = index == 0 ? ASUS_WMI_DEVID_CPU_FAN_CTRL :
+            ASUS_WMI_DEVID_GPU_FAN_CTRL;
+        int status = wmi_get_devstate(id);
+        if (status == -1 || !(status & ASUS_WMI_DSTS_PRESENCE_BIT)) {
+            return false;
+        }
+        speed = (status & 0xffff) * 100;
+        return speed <= Fpe2MaxRpm;
+    }
 
-    return speed != 10000;
+    auto arg = OSNumber::withNumber(index, 32);
+    if (arg == nullptr) {
+        return false;
+    }
+    OSObject *args[] {arg};
+    // UX481 WMI reports RTAH / 100 in hundred-RPM units, but TACH treats
+    // RTAH as a period. Read RTAH directly when its value is already RPM.
+    const char *method = useRawFanSpeed ? "RTAH" : "TACH";
+    IOReturn ret = ec0Device->evaluateInteger(method, &speed, args, 1);
+
+    // TACH returns Ones for both a stopped fan and an unavailable reading;
+    // confirm a zero RTAH value before reporting a stopped fan.
+    if (!useRawFanSpeed && ret == kIOReturnSuccess &&
+        speed == InvalidFanSpeed && hasRawTachometer) {
+        uint32_t available = 0;
+        uint32_t rawSpeed = UINT32_MAX;
+        if (ec0Device->evaluateInteger("ECAV", &available) ==
+                kIOReturnSuccess &&
+            available != 0 &&
+            ec0Device->evaluateInteger("RTAH", &rawSpeed, args, 1) ==
+                kIOReturnSuccess && rawSpeed == 0) {
+            speed = 0;
+        }
+    }
+    arg->release();
+    return ret == kIOReturnSuccess && speed <= Fpe2MaxRpm;
+}
+
+void AsusSMC::refreshFan() {
+    for (uint32_t i = 0; i < fanCount; ++i) {
+        uint32_t speed = InvalidFanSpeed;
+        if (!readFanSpeed(i, speed)) {
+            speed = InvalidFanSpeed;
+        }
+        atomic_store_explicit(&currentFanSpeed[i], speed, memory_order_release);
+
+        char property[16];
+        snprintf(property, sizeof(property), "Fan%uRPM", i);
+        if (speed == InvalidFanSpeed) {
+            removeProperty(property);
+        } else {
+            setProperty(property, speed, 32);
+        }
+    }
 }
 
 void AsusSMC::handleMessage(int code) {
@@ -809,8 +869,6 @@ void AsusSMC::dispatchMessage(int message, void *data) {
 }
 
 void AsusSMC::registerVSMC() {
-    vsmcNotifier = VirtualSMCAPI::registerHandler(vsmcNotificationHandler, this);
-
     ALSSensor sensor {ALSSensor::Type::Unknown7, true, 6, false};
     ALSSensor noSensor {ALSSensor::Type::NoSensor, false, 0, false};
     SMCALSValue::Value emptyValue;
@@ -854,19 +912,28 @@ void AsusSMC::registerVSMC() {
         SMC_KEY_ATTRIBUTE_READ | SMC_KEY_ATTRIBUTE_WRITE | SMC_KEY_ATTRIBUTE_FUNCTION));
 
     VirtualSMCAPI::addKey(KeyFNum, vsmcPlugin.data, VirtualSMCAPI::valueWithUint8(
-        1, nullptr,
+        fanCount, nullptr,
         SMC_KEY_ATTRIBUTE_CONST | SMC_KEY_ATTRIBUTE_READ));
 
-    VirtualSMCAPI::addKey(KeyF0Ac, vsmcPlugin.data, VirtualSMCAPI::valueWithFp(
-        0, SmcKeyTypeFpe2, new F0Ac(&currentFanSpeed),
-        SMC_KEY_ATTRIBUTE_READ | SMC_KEY_ATTRIBUTE_FUNCTION));
+    for (uint32_t i = 0; i < fanCount; ++i) {
+        char index = '0' + i;
+        VirtualSMCAPI::addKey(SMC_MAKE_IDENTIFIER('F', index, 'A', 'c'),
+            vsmcPlugin.data, VirtualSMCAPI::valueWithFp(
+                0, SmcKeyTypeFpe2, new FanSpeed(&currentFanSpeed[i]),
+                SMC_KEY_ATTRIBUTE_READ | SMC_KEY_ATTRIBUTE_FUNCTION));
 
-    FanTypeDescStruct desc;
-    lilu_os_strncpy(desc.strFunction, "System Fan", DiagFunctionStrLen);
-
-    VirtualSMCAPI::addKey(KeyF0ID, vsmcPlugin.data, VirtualSMCAPI::valueWithData(
-        reinterpret_cast<const SMC_DATA *>(&desc), sizeof(desc), SmcKeyTypeFds, nullptr,
-        SMC_KEY_ATTRIBUTE_CONST | SMC_KEY_ATTRIBUTE_READ));
+        FanTypeDescStruct desc {};
+        if (fanCount == 1) {
+            lilu_os_strncpy(desc.strFunction, "System Fan", DiagFunctionStrLen);
+        } else {
+            snprintf(desc.strFunction, DiagFunctionStrLen, "Fan %u", i + 1);
+        }
+        VirtualSMCAPI::addKey(SMC_MAKE_IDENTIFIER('F', index, 'I', 'D'),
+            vsmcPlugin.data, VirtualSMCAPI::valueWithData(
+                reinterpret_cast<const SMC_DATA *>(&desc), sizeof(desc),
+                SmcKeyTypeFds, nullptr,
+                SMC_KEY_ATTRIBUTE_CONST | SMC_KEY_ATTRIBUTE_READ));
+    }
 
     if (isBatteryRSOCAvailable) {
         VirtualSMCAPI::addKey(KeyBDVT, vsmcPlugin.data, VirtualSMCAPI::valueWithFlag(
@@ -875,6 +942,8 @@ void AsusSMC::registerVSMC() {
     }
 
     qsort(const_cast<VirtualSMCKeyValue *>(vsmcPlugin.data.data()), vsmcPlugin.data.size(), sizeof(VirtualSMCKeyValue), VirtualSMCKeyValue::compare);
+    vsmcNotifier =
+        VirtualSMCAPI::registerHandler(vsmcNotificationHandler, this);
 }
 
 bool AsusSMC::vsmcNotificationHandler(void *sensors, void *refCon, IOService *vsmc, IONotifier *notifier) {
@@ -891,6 +960,7 @@ bool AsusSMC::vsmcNotificationHandler(void *sensors, void *refCon, IOService *vs
                 if (ls) {
                     ls->refreshALS(true);
                     ls->refreshFan();
+                    sender->setTimeoutMS(SensorUpdateTimeoutMS);
                 }
             });
 
