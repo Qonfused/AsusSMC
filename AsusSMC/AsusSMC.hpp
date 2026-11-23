@@ -24,6 +24,7 @@
 #define ASUS_WMI_METHODID_DEVS         0x53564544
 #define ASUS_WMI_METHODID_INIT         0x54494E49
 #define ASUS_WMI_DEVID_ALS_ENABLE      0x00050001
+#define ASUS_WMI_DEVID_KBD_BACKLIGHT   0x00050021
 #define ASUS_WMI_DEVID_SCREENPAD       0x00050031
 #define ASUS_WMI_DEVID_SCREENPAD_LIGHT 0x00050032
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
@@ -121,6 +122,7 @@ private:
     void initVirtualKeyboard();
 
     void startATKDevice();
+    void readKeyboardBacklightDirection();
     
     bool refreshALS(bool post);
     void initFans();
@@ -159,6 +161,7 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
+    _Atomic(bool) keyboardBacklightDimming = ATOMIC_VAR_INIT(false);
     static constexpr int ScreenPadMaxBrightness = 255;
     static constexpr int ScreenPadBrightnessStep = ScreenPadMaxBrightness / 5;
     static constexpr int BrightnessSteps = 16;

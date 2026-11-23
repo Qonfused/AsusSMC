@@ -41,6 +41,8 @@ With AsusSMCDaemon running, move the pointer onto the ScreenPad and press the us
 
 Install the matching AsusSMCDaemon to enable pointer-based brightness control. The dedicated Switch Windows and ScreenPad buttons also work before login. If your EFI handles these buttons in ACPI, restore the firmware’s original `_Q31` and `_Q32` methods so AsusSMC can receive their notifications.
 
+On keyboards with a single illumination key, AsusSMC uses the existing `SKBV` brightness control and reverses direction at either end of the macOS brightness range.
+
 #### Fan control
 
 AsusSMC can select Automatic or Full Speed when firmware provides the ASUS WMI CPU fan-control interface. Automatic lets firmware adjust speed according to temperature, while Full Speed requests maximum speed. Which fans respond depends on the firmware implementation.

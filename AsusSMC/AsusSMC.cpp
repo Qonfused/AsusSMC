@@ -198,9 +198,21 @@ IOReturn AsusSMC::message(uint32_t type, IOService *provider, void *argument) {
                 return kIOReturnBadArgument;
             }
             if (hasKeyboardBacklight) {
-                OSNumber *arg = OSNumber::withNumber(*((uint16_t *)argument) / 16, 16);
-                atkDevice->evaluateObject("SKBV", NULL, (OSObject **)&arg, 1);
+                uint16_t brightness = *static_cast<uint16_t *>(argument) >> 4;
+                OSNumber *arg = OSNumber::withNumber(brightness, 16);
+                if (arg == nullptr) {
+                    return kIOReturnNoMemory;
+                }
+                OSObject *args[] {arg};
+                IOReturn ret = atkDevice->evaluateObject("SKBV", nullptr, args, 1);
                 arg->release();
+                if (ret != kIOReturnSuccess) {
+                    return ret;
+                }
+                uint16_t step = brightness >> 4;
+                if (step == 0 || step == 15) {
+                    keyboardBacklightDimming = step == 15;
+                }
             }
             break;
         }
@@ -661,6 +673,17 @@ void AsusSMC::initVirtualKeyboard() {
     }
 }
 
+void AsusSMC::readKeyboardBacklightDirection() {
+    if (hasKeyboardBacklight) {
+        int status = wmi_get_devstate(ASUS_WMI_DEVID_KBD_BACKLIGHT);
+        if (status >= 0 && (status & ASUS_WMI_DSTS_PRESENCE_BIT)) {
+            // DSTS returns the current level in its low byte. After startup
+            // or wake, the first press dims a lit keyboard.
+            keyboardBacklightDimming = (status & 0xff) != 0;
+        }
+    }
+}
+
 void AsusSMC::startATKDevice() {
     // Check direct ACPI messaging support
     if (atkDevice->validateObject("DMES") == kIOReturnSuccess) {
@@ -678,6 +701,7 @@ void AsusSMC::startATKDevice() {
         DBGLOG("atk", "Keyboard backlight is not supported");
     }
     setProperty("IsKeyboardBacklightSupported", hasKeyboardBacklight);
+    readKeyboardBacklightDirection();
 
     // Turn on ALS sensor
     toggleALS(true);
@@ -883,11 +907,14 @@ void AsusSMC::updatePowerState(bool sleeping) {
                     self->command_gate->commandWakeup(request);
                 }
             }
-            if (self->screenPadSupported && wasSuspended && !self->suspended) {
-                if (self->screenPadPower >= 0) {
-                    self->setScreenPadPower(self->screenPadPower != 0);
-                } else {
-                    self->readScreenPadState();
+            if (wasSuspended && !self->suspended) {
+                self->readKeyboardBacklightDirection();
+                if (self->screenPadSupported) {
+                    if (self->screenPadPower >= 0) {
+                        self->setScreenPadPower(self->screenPadPower != 0);
+                    } else {
+                        self->readScreenPadState();
+                    }
                 }
             }
             if (!self->fanControlSupported) {
@@ -999,9 +1026,12 @@ void AsusSMC::handleMessage(int code) {
             toggleAirplaneMode();
             break;
 
-        case 0xC6:
-        case 0xC7: // ALS Notifcations
-            // ignore
+        case 0xC7: // Cycle keyboard illumination
+            if (hasKeyboardBacklight) {
+                dispatchTCReport(keyboardBacklightDimming ?
+                    kHIDUsage_AV_TopCase_IlluminationDown :
+                    kHIDUsage_AV_TopCase_IlluminationUp);
+            }
             break;
 
         case 0xC5: // Keyboard Backlight Down
