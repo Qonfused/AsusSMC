@@ -57,16 +57,22 @@ SMC_RESULT FanSpeed::readAccess() {
     return SmcSuccess;
 }
 
-SMC_RESULT BDVT::update(const SMC_DATA *src)  {
-    bool state = false;
-    lilu_os_memcpy(&state, src, size);
+SMC_RESULT BDVT::readAccess() {
+    const int applied = atomic_load(&limit.applied);
+    if (applied < 0) {
+        return SmcNotReadable;
+    }
+    // BDVT reads zero at the 80% charge limit and one for full charging.
+    data[0] = applied == 100;
+    return SmcSuccess;
+}
 
-    // BDVT is 00 when battery health is enabled and 01 when disabled
-    state = !state;
-
-    AsusSMC *drv = OSDynamicCast(AsusSMC, dst);
-    drv->toggleBatteryConservativeMode(state);
-
-    lilu_os_memcpy(data, src, size);
+SMC_RESULT BDVT::update(const SMC_DATA *src) {
+    // VirtualSMC may hold a spinlock during this callback, so the work loop
+    // handles the firmware write that can sleep.
+    if (!atomic_load(&limit.acceptingWrites)) {
+        return SmcNotWritable;
+    }
+    atomic_store(&limit.pending, src[0] ? 100 : 80);
     return SmcSuccess;
 }

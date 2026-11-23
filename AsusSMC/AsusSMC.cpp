@@ -133,6 +133,7 @@ bool AsusSMC::start(IOService *provider) {
 }
 
 void AsusSMC::stop(IOService *provider) {
+    atomic_store(&batteryLimit.acceptingWrites, false);
     updatePowerState(true);
     PMstop();
 
@@ -665,15 +666,20 @@ IOReturn AsusSMC::acceptBrightnessReply(OSDictionary *properties) {
 }
 
 void AsusSMC::initBattery() {
-    // Battery Health was introduced in 10.15.5
-    // Check if we're on 10.15.5+
-    if (getKernelVersion() < KernelVersion::Catalina || (getKernelVersion() == KernelVersion::Catalina && getKernelMinorVersion() < 5)) {
+    const bool hasBatteryHealth = getKernelVersion() > KernelVersion::Catalina ||
+        (getKernelVersion() == KernelVersion::Catalina && getKernelMinorVersion() >= 5);
+    uint32_t enabled = 0;
+    const bool bindMyAsusKey =
+        atkDevice->evaluateInteger("BKEY", &enabled) == kIOReturnSuccess && enabled == 1;
+    if ((!hasBatteryHealth && !bindMyAsusKey) || !wmi_dev_is_present(ASUS_WMI_DEVID_RSOC)) {
         return;
     }
 
-    isBatteryRSOCAvailable = wmi_dev_is_present(ASUS_WMI_DEVID_RSOC);
-    if (isBatteryRSOCAvailable) {
-        toggleBatteryConservativeMode(true);
+    batteryHotkeyAvailable = bindMyAsusKey;
+    publishBatteryHealthKey = hasBatteryHealth;
+    if (hasBatteryHealth) {
+        atomic_store(&batteryLimit.pending, 80);
+        applyBatteryLimit();
     }
 }
 
@@ -1020,16 +1026,21 @@ void AsusSMC::handleMessage(int code) {
             break;
 
         case 0x4E: // Fn Lock
-            if (command_gate && fnLockSupported) {
+        case 0x86: // MyASUS (Fn+F12 on the UX481)
+            if (command_gate && (code == 0x4E ? fnLockSupported : batteryHotkeyAvailable)) {
                 command_gate->runAction(
-                    [](OSObject *owner, void *, void *, void *, void *) {
+                    [](OSObject *owner, void *argument, void *, void *, void *) {
                         auto self = static_cast<AsusSMC *>(owner);
                         if (self->suspended) {
                             return kIOReturnNotReady;
                         }
-                        self->setFnLock(self->fnLockMode <= 0);
+                        if (*static_cast<int *>(argument) == 0x86) {
+                            self->applyBatteryLimit(true);
+                        } else {
+                            self->setFnLock(self->fnLockMode <= 0);
+                        }
                         return kIOReturnSuccess;
-                    });
+                    }, &code);
             }
             break;
 
@@ -1120,18 +1131,28 @@ void AsusSMC::toggleALS(bool state) {
     }
 }
 
-void AsusSMC::toggleBatteryConservativeMode(bool state) {
-    if (!isBatteryRSOCAvailable) {
-        DBGLOG("batt", "RSOC unavailable");
+void AsusSMC::applyBatteryLimit(bool toggle) {
+    if (suspended) {
         return;
     }
 
-    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_RSOC, state ? 80 : 100) != 1) {
-        SYSLOG("batt", "Failed to %s battery conservative mode", state ? "enable" : "disable");
-    } else {
-        DBGLOG("batt", "Battery conservative mode is %s", state ? "enabled" : "disabled");
-        setProperty("BatteryConservativeMode", state);
+    int limit = atomic_exchange(&batteryLimit.pending, -1);
+    if (toggle) {
+        // If a BDVT write is pending, the keypress reverses that request
+        // before the work loop sends a limit to firmware.
+        const int previous = limit >= 0 ? limit : atomic_load(&batteryLimit.applied);
+        limit = previous == 80 ? 100 : 80;
     }
+    if (limit < 0) {
+        return;
+    }
+
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_RSOC, limit) != 1) {
+        SYSLOG("batt", "Failed to set the battery charge limit to %d%%", limit);
+        return;
+    }
+    atomic_store(&batteryLimit.applied, limit);
+    setProperty("BatteryConservativeMode", limit == 80);
 }
 
 void AsusSMC::displayOff() {
@@ -1394,9 +1415,9 @@ void AsusSMC::registerVSMC() {
                 SMC_KEY_ATTRIBUTE_CONST | SMC_KEY_ATTRIBUTE_READ));
     }
 
-    if (isBatteryRSOCAvailable) {
+    if (publishBatteryHealthKey) {
         VirtualSMCAPI::addKey(KeyBDVT, vsmcPlugin.data, VirtualSMCAPI::valueWithFlag(
-            false, new BDVT(this),
+            false, new BDVT(batteryLimit),
             SMC_KEY_ATTRIBUTE_READ | SMC_KEY_ATTRIBUTE_WRITE | SMC_KEY_ATTRIBUTE_ATOMIC));
     }
 
@@ -1417,6 +1438,7 @@ bool AsusSMC::vsmcNotificationHandler(void *sensors, void *refCon, IOService *vs
             self->poller = IOTimerEventSource::timerEventSource(self, [](OSObject *object, IOTimerEventSource *sender) {
                 auto ls = OSDynamicCast(AsusSMC, object);
                 if (ls) {
+                    ls->applyBatteryLimit();
                     ls->refreshALS(true);
                     ls->refreshFan();
                     sender->setTimeoutMS(SensorUpdateTimeoutMS);
@@ -1438,6 +1460,7 @@ bool AsusSMC::vsmcNotificationHandler(void *sensors, void *refCon, IOService *vs
                 return false;
             }
 
+            atomic_store(&self->batteryLimit.acceptingWrites, true);
             return true;
         } else if (ret != kIOReturnUnsupported) {
             SYSLOG("atk", "Plugin submission failure %X", ret);

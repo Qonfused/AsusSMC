@@ -60,7 +60,6 @@ public:
     void toggleAirplaneMode();
     void toggleTouchpad();
     void toggleALS(bool state);
-    void toggleBatteryConservativeMode(bool state);
     void displayOff();
 
 private:
@@ -112,6 +111,7 @@ private:
     void initALSDevice();
     void initEC0Device();
     void initBattery();
+    void applyBatteryLimit(bool toggle = false);
     void readScreenPadState();
     int readScreenPadValue(uint32_t device);
     bool setScreenPadBrightness(uint8_t level);
@@ -190,7 +190,9 @@ private:
     bool isTouchpadEnabled {true};
     bool isPanelBackLightOn {true};
     bool isTACHAvailable {false};
-    bool isBatteryRSOCAvailable {false};
+    bool publishBatteryHealthKey {false};
+    bool batteryHotkeyAvailable {false};
+    BatteryChargeLimit batteryLimit;
 
     uint32_t panelBrightnessLevel {16};
     char backlightEntry[1000];

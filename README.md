@@ -43,6 +43,8 @@ Install the matching AsusSMCDaemon to enable pointer-based brightness control. T
 
 AsusSMC handles Fn Lock when ASUS WMI reports that BIOS permits it. The first press requests the locked mode. Subsequent presses toggle the mode, and AsusSMC restores the last selection after sleep. On keyboards with a single illumination key, AsusSMC uses the existing `SKBV` brightness control and reverses direction at either end of the macOS brightness range.
 
+To use the MyASUS key (Fn+F12 on the UX481) to switch between 80% and full charging, declare `Name (BKEY, One)` under `\_SB.ATKD`. This binding requires firmware charge-limit support.
+
 #### Fan control
 
 AsusSMC can select Automatic or Full Speed when firmware provides the ASUS WMI CPU fan-control interface. Automatic lets firmware adjust speed according to temperature, while Full Speed requests maximum speed. Which fans respond depends on the firmware implementation.

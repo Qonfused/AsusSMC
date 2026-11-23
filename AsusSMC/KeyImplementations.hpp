@@ -131,14 +131,21 @@ public:
     FanSpeed(_Atomic(uint32_t) *speed) : currentSpeed(speed) {}
 };
 
+struct BatteryChargeLimit {
+    _Atomic(int) applied = ATOMIC_VAR_INIT(-1);
+    _Atomic(int) pending = ATOMIC_VAR_INIT(-1);
+    _Atomic(bool) acceptingWrites = ATOMIC_VAR_INIT(false);
+};
+
 class BDVT : public VirtualSMCValue {
-    IOService *dst {nullptr};
+    BatteryChargeLimit &limit;
 
 protected:
+    SMC_RESULT readAccess() override;
     SMC_RESULT update(const SMC_DATA *src) override;
 
 public:
-    BDVT(IOService *dst) : dst(dst) {}
+    BDVT(BatteryChargeLimit &limit) : limit(limit) {}
 };
 
 #endif /* KeyImplementations_hpp */
