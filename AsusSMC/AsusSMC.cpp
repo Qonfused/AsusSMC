@@ -82,6 +82,11 @@ bool AsusSMC::start(IOService *provider) {
     initEC0Device();
 
     readScreenPadState();
+    if (screenPadSupported && fnLockSupported) {
+        // The Fn LED can be off at boot while F4/F5 still emit function keys.
+        // Selecting unlocked mode makes firmware send brightness notifications.
+        setFnLock(false);
+    }
 
     initBattery();
 
