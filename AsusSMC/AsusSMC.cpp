@@ -322,6 +322,19 @@ void AsusSMC::parse_WDG() {
 
 void AsusSMC::initATKDevice() {
     wmi_evaluate_method(ASUS_WMI_METHODID_INIT, 0, 0);
+
+    int status = wmi_get_devstate(ASUS_WMI_DEVID_FNLOCK);
+    fnLockSupported = status >= 0 && (status & ASUS_WMI_DSTS_PRESENCE_BIT) &&
+                      !(status & ASUS_WMI_FNLOCK_BIOS_DISABLED);
+}
+
+void AsusSMC::setFnLock(bool enabled) {
+    if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS, ASUS_WMI_DEVID_FNLOCK, enabled) == 1) {
+        fnLockMode = enabled;
+        setProperty("FnLock", enabled);
+    } else {
+        SYSLOG("atk", "Failed to set Fn Lock to %u", static_cast<unsigned>(enabled));
+    }
 }
 
 void AsusSMC::initALSDevice() {
@@ -909,6 +922,9 @@ void AsusSMC::updatePowerState(bool sleeping) {
             }
             if (wasSuspended && !self->suspended) {
                 self->readKeyboardBacklightDirection();
+                if (self->fnLockMode >= 0) {
+                    self->setFnLock(self->fnLockMode != 0);
+                }
                 if (self->screenPadSupported) {
                     if (self->screenPadPower >= 0) {
                         self->setScreenPadPower(self->screenPadPower != 0);
@@ -1000,6 +1016,20 @@ void AsusSMC::handleMessage(int code) {
                         }
                         return kIOReturnSuccess;
                     }, &code);
+            }
+            break;
+
+        case 0x4E: // Fn Lock
+            if (command_gate && fnLockSupported) {
+                command_gate->runAction(
+                    [](OSObject *owner, void *, void *, void *, void *) {
+                        auto self = static_cast<AsusSMC *>(owner);
+                        if (self->suspended) {
+                            return kIOReturnNotReady;
+                        }
+                        self->setFnLock(self->fnLockMode <= 0);
+                        return kIOReturnSuccess;
+                    });
             }
             break;
 

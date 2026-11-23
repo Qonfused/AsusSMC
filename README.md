@@ -41,7 +41,7 @@ With AsusSMCDaemon running, move the pointer onto the ScreenPad and press the us
 
 Install the matching AsusSMCDaemon to enable pointer-based brightness control. The dedicated Switch Windows and ScreenPad buttons also work before login. If your EFI handles these buttons in ACPI, restore the firmware’s original `_Q31` and `_Q32` methods so AsusSMC can receive their notifications.
 
-On keyboards with a single illumination key, AsusSMC uses the existing `SKBV` brightness control and reverses direction at either end of the macOS brightness range.
+AsusSMC handles Fn Lock when ASUS WMI reports that BIOS permits it. The first press requests the locked mode. Subsequent presses toggle the mode, and AsusSMC restores the last selection after sleep. On keyboards with a single illumination key, AsusSMC uses the existing `SKBV` brightness control and reverses direction at either end of the macOS brightness range.
 
 #### Fan control
 

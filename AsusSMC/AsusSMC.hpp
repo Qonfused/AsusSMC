@@ -29,6 +29,8 @@
 #define ASUS_WMI_DEVID_SCREENPAD_LIGHT 0x00050032
 #define ASUS_WMI_DEVID_CPU_FAN_CTRL    0x00110013
 #define ASUS_WMI_DEVID_GPU_FAN_CTRL    0x00110014
+#define ASUS_WMI_DEVID_FNLOCK          0x00100023
+#define ASUS_WMI_FNLOCK_BIOS_DISABLED  0x01
 #define ASUS_WMI_DEVID_RSOC            0x00120057
 #define ASUS_WMI_DSTS_PRESENCE_BIT     0x00010000
 #define ASUS_WMI_MGMT_GUID             "97845ED0-4E6D-11DE-8A39-0800200C9A66"
@@ -123,6 +125,7 @@ private:
 
     void startATKDevice();
     void readKeyboardBacklightDirection();
+    void setFnLock(bool enabled);
     
     bool refreshALS(bool post);
     void initFans();
@@ -161,6 +164,10 @@ private:
 
     bool directACPImessaging {false};
     bool hasKeyboardBacklight {false};
+    bool fnLockSupported {false};
+    // DSTS reports whether BIOS permits Fn Lock. Until DEVS accepts a mode,
+    // AsusSMC has no selection to restore on wake.
+    int fnLockMode {-1};
     _Atomic(bool) keyboardBacklightDimming = ATOMIC_VAR_INIT(false);
     static constexpr int ScreenPadMaxBrightness = 255;
     static constexpr int ScreenPadBrightnessStep = ScreenPadMaxBrightness / 5;
