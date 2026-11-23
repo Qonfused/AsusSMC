@@ -1,0 +1,80 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@v6
+        with:
+          repository: acidanthera/MacKernelSDK
+          ref: c41d877b64e7fd916bd271390bcdf30f7deb7b7a
+          path: MacKernelSDK
+          persist-credentials: false
+
+      - name: Install Lilu and VirtualSMC SDKs
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSLO https://github.com/acidanthera/Lilu/releases/download/1.6.5/Lilu-1.6.5-DEBUG.zip
+          curl -fsSLO https://github.com/acidanthera/VirtualSMC/releases/download/1.3.2/VirtualSMC-1.3.2-DEBUG.zip
+          shasum -a 256 --check <<'SUMS'
+          6ab5fe23cdf1fa99167a9c53be4417cf6d02ec66268cf3775b298857c8fe2f8d  Lilu-1.6.5-DEBUG.zip
+          fb36bbb7dfd37d971a46b5ddbc25ce7317c72022cc314f32b275de65008eedcf  VirtualSMC-1.3.2-DEBUG.zip
+          SUMS
+          unzip -q Lilu-1.6.5-DEBUG.zip 'Lilu.kext/*' -d "$GITHUB_WORKSPACE"
+          unzip -q VirtualSMC-1.3.2-DEBUG.zip 'Kexts/VirtualSMC.kext/*'
+          mv Kexts/VirtualSMC.kext "$GITHUB_WORKSPACE/"
+
+      - name: Build package
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            Scripts/package.sh "$CONFIGURATION" "${GITHUB_REF_NAME#v}"
+          else
+            Scripts/package.sh "$CONFIGURATION"
+          fi
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: AsusSMC-${{ matrix.configuration }}
+          path: build/packages/*.zip
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: AsusSMC-*
+          path: packages
+          merge-multiple: true
+
+      - name: Publish release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "AsusSMC $version" --notes "" \
+            "packages/AsusSMC-$version-DEBUG.zip" "packages/AsusSMC-$version-RELEASE.zip"

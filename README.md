@@ -1,9 +1,8 @@
 # AsusSMC
 
-[![Github release](https://img.shields.io/github/release/hieplpvip/AsusSMC.svg?color=blue)](https://github.com/hieplpvip/AsusSMC/releases/latest)
-[![Github downloads](https://img.shields.io/github/downloads/hieplpvip/AsusSMC/total.svg?color=blue)](https://github.com/hieplpvip/AsusSMC/releases)
-[![Build Status](https://travis-ci.com/hieplpvip/AsusSMC.svg?branch=master)](https://travis-ci.com/hieplpvip/AsusSMC)
-[![Scan Status](https://scan.coverity.com/projects/18304/badge.svg)](https://scan.coverity.com/projects/18304)
+[![Github release](https://img.shields.io/github/release/Qonfused/AsusSMC.svg?color=blue)](https://github.com/Qonfused/AsusSMC/releases/latest)
+[![Github downloads](https://img.shields.io/github/downloads/hieplpvip/AsusSMC/total.svg?color=blue)](https://github.com/Qonfused/AsusSMC/releases)
+[![Build and release](https://github.com/Qonfused/AsusSMC/actions/workflows/build.yml/badge.svg)](https://github.com/Qonfused/AsusSMC/actions/workflows/build.yml)
 [![Gitter chat](https://img.shields.io/gitter/room/nwjs/nw.js.svg?colorB=ed1965)](https://gitter.im/hieplpvip/AsusSMC)
 [![Donate with PayPal](https://img.shields.io/badge/paypal-donate-red.svg)](https://paypal.me/lebhiep)
 
@@ -33,6 +32,10 @@ A VirtualSMC plugin provides native support for ALS, keyboard backlight and Fn k
 
 - Instruction is available in the Wiki.
 
+#### Release packages
+
+Pushing a tag such as `v1.4.2` sets the kext version to `1.4.2` and publishes both DEBUG and RELEASE ZIPs. Each archive contains `AsusSMC.kext` for OpenCore, the matching daemon and installer for pointer-based ScreenPad brightness, and `fanctl` for fan monitoring and control. Pull requests and pushes to `master` build the same packages as GitHub Actions artifacts.
+
 #### ScreenPad Plus
 
 On ZenBook Duo models with ScreenPad controls in ASUS WMI, the Switch Windows button cycles the lower display through five brightness steps and reverses direction at either end. The adjacent ScreenPad button turns the display off and restores its brightness when you turn it back on. AsusSMC reads the initial settings from firmware and restores them after sleep.
@@ -49,7 +52,7 @@ To use the MyASUS key (Fn+F12 on the UX481) to switch between 80% and full charg
 
 AsusSMC can select Automatic or Full Speed when firmware provides the ASUS WMI CPU fan-control interface. Automatic lets firmware adjust speed according to temperature, while Full Speed requests maximum speed. Which fans respond depends on the firmware implementation.
 
-After building AsusSMC, compile `fanctl`:
+From an extracted release, run `./fanctl status` to read fan speeds. To build the tool from source, run:
 
 ```sh
 clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=10.11 \
