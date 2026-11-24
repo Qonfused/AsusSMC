@@ -113,6 +113,7 @@ private:
     void initBattery();
     void applyBatteryLimit(bool toggle = false);
     void readScreenPadState();
+    void syncScreenPadBrightness();
     int readScreenPadValue(uint32_t device);
     bool setScreenPadBrightness(uint8_t level);
     void setScreenPadPower(bool enabled);
@@ -185,6 +186,10 @@ private:
     bool screenPadSupported {false};
     int screenPadPower {-1}; // -1 when firmware status is unavailable.
     bool screenPadDimming {true};
+    IOService *nvram {nullptr};
+    int preferredScreenPadBrightness {-1};
+    int savedScreenPadBrightness {-1};
+    bool screenPadBrightnessPending {false};
     int screenPadBrightness {-1}; // Firmware cannot report brightness while off.
     bool isALSEnabled {true};
     bool isTouchpadEnabled {true};

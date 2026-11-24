@@ -8,6 +8,8 @@
 #include "AsusSMC.hpp"
 #include <kern/clock.h>
 
+static constexpr char ScreenPadBrightnessKey[] = "AsusSMC-ScreenPadBrightness";
+
 static IOPMPowerState powerStates[] {
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {1, IOPMDeviceUsable, IOPMPowerOn, IOPMPowerOn,
@@ -82,6 +84,7 @@ bool AsusSMC::start(IOService *provider) {
     initEC0Device();
 
     readScreenPadState();
+    syncScreenPadBrightness();
     if (screenPadSupported && fnLockSupported) {
         // The Fn LED can be off at boot while F4/F5 still emit function keys.
         // Selecting unlocked mode makes firmware send brightness notifications.
@@ -154,6 +157,7 @@ void AsusSMC::stop(IOService *provider) {
     OSSafeReleaseNULL(workloop);
     OSSafeReleaseNULL(poller);
     OSSafeReleaseNULL(command_gate);
+    OSSafeReleaseNULL(nvram);
 
     _publishNotify->remove();
     _terminateNotify->remove();
@@ -489,6 +493,52 @@ void AsusSMC::readScreenPadState() {
     }
 }
 
+void AsusSMC::syncScreenPadBrightness() {
+    if (!screenPadSupported) {
+        return;
+    }
+    // NVRAM can appear after the ATK device. The work-loop timer retries
+    // discovery and lets several brightness key presses share one write.
+    if (!nvram) {
+        auto match = serviceMatching("IODTNVRAM");
+        if (match) {
+            nvram = copyMatchingService(match);
+            match->release();
+        }
+        if (!nvram) {
+            return;
+        }
+
+        auto value = nvram->copyProperty(ScreenPadBrightnessKey);
+        auto data = OSDynamicCast(OSData, value);
+        if (data && data->getLength() == sizeof(uint8_t)) {
+            savedScreenPadBrightness =
+                *static_cast<const uint8_t *>(data->getBytesNoCopy());
+        }
+        OSSafeReleaseNULL(value);
+
+        // A key pressed during startup takes precedence over a saved level.
+        if (preferredScreenPadBrightness < 0 && savedScreenPadBrightness >= 0) {
+            preferredScreenPadBrightness = savedScreenPadBrightness;
+            if (!suspended && screenPadPower == 1 &&
+                screenPadBrightness != preferredScreenPadBrightness) {
+                setScreenPadBrightness(preferredScreenPadBrightness);
+            }
+        }
+    }
+
+    if (screenPadBrightnessPending && preferredScreenPadBrightness >= 0 &&
+        preferredScreenPadBrightness != savedScreenPadBrightness) {
+        uint8_t level = preferredScreenPadBrightness;
+        if (nvram->setProperty(ScreenPadBrightnessKey, &level, sizeof(level))) {
+            savedScreenPadBrightness = level;
+        } else {
+            SYSLOG("screenpad", "Could not save brightness %u to NVRAM", level);
+        }
+    }
+    screenPadBrightnessPending = false;
+}
+
 bool AsusSMC::setScreenPadBrightness(uint8_t level) {
     if (wmi_evaluate_method(ASUS_WMI_METHODID_DEVS,
             ASUS_WMI_DEVID_SCREENPAD_LIGHT, level) != 1) {
@@ -510,8 +560,9 @@ void AsusSMC::setScreenPadPower(bool enabled) {
     }
     screenPadPower = enabled;
     setProperty("ScreenPadEnabled", enabled);
-    if (enabled && (screenPadBrightness < 0 ||
-            !setScreenPadBrightness(static_cast<uint8_t>(screenPadBrightness)))) {
+    int level = preferredScreenPadBrightness >= 0 ?
+        preferredScreenPadBrightness : screenPadBrightness;
+    if (enabled && (level < 0 || !setScreenPadBrightness(level))) {
         // Power-on may restore the panel's own level if none was available
         // at boot or firmware declined our second write.
         readScreenPadState();
@@ -534,6 +585,8 @@ void AsusSMC::cycleScreenPadBrightness() {
     int next = dim ? max(0, level - ScreenPadBrightnessStep) :
         min(ScreenPadMaxBrightness, level + ScreenPadBrightnessStep);
     if (setScreenPadBrightness(static_cast<uint8_t>(next))) {
+        preferredScreenPadBrightness = next;
+        screenPadBrightnessPending = true;
         screenPadDimming = dim;
         kev.sendMessage(kDaemonScreenPadBrightness, next,
                         ScreenPadMaxBrightness);
@@ -555,6 +608,8 @@ void AsusSMC::stepScreenPadBrightness(bool brighter) {
     int next = (step * ScreenPadMaxBrightness + BrightnessSteps / 2) /
         BrightnessSteps;
     if (next == level || setScreenPadBrightness(static_cast<uint8_t>(next))) {
+        preferredScreenPadBrightness = next;
+        screenPadBrightnessPending = true;
         kev.sendMessage(kDaemonScreenPadBrightness, step, BrightnessSteps);
     }
 }
@@ -924,6 +979,8 @@ void AsusSMC::updatePowerState(bool sleeping) {
             bool wasSuspended = self->suspended;
             self->suspended = *static_cast<bool *>(argument);
             if (self->suspended) {
+                self->screenPadBrightnessPending = true;
+                self->syncScreenPadBrightness();
                 BrightnessRequest *request;
                 LIST_FOREACH(request, &self->brightnessRequests, link) {
                     request->answered = true;
@@ -1443,6 +1500,7 @@ bool AsusSMC::vsmcNotificationHandler(void *sensors, void *refCon, IOService *vs
             self->poller = IOTimerEventSource::timerEventSource(self, [](OSObject *object, IOTimerEventSource *sender) {
                 auto ls = OSDynamicCast(AsusSMC, object);
                 if (ls) {
+                    ls->syncScreenPadBrightness();
                     ls->applyBatteryLimit();
                     ls->refreshALS(true);
                     ls->refreshFan();
