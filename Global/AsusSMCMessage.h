@@ -15,7 +15,14 @@ enum AsusSMCMessageType {
     kDaemonTouchpad = 4,
     kDaemonScreenPadBrightness = 5,
     // x identifies the press. Reply with (x << 1) | pointerIsOnScreenPad.
-    kDaemonChooseBrightnessDisplay = 6
+    kDaemonChooseBrightnessDisplay = 6,
+    // x carries the fan mode selected by the hotkey.
+    kDaemonFanMode = 7
+};
+
+enum AsusSMCFanMode {
+    FanModeAutomatic = 0,
+    FanModeFullSpeed = 1
 };
 
 struct AsusSMCMessage {

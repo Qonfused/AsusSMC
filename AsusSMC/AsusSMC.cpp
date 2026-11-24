@@ -906,6 +906,19 @@ void AsusSMC::refreshFan() {
     }
 }
 
+IOReturn AsusSMC::toggleFanMode() {
+    // FanMode records the last request firmware accepted, including fanctl.
+    auto value = copyProperty("FanMode");
+    auto mode = OSDynamicCast(OSNumber, value);
+    bool automatic = mode && mode->unsigned32BitValue() == FanModeAutomatic;
+    OSSafeReleaseNULL(value);
+    auto next = automatic ? FanModeFullSpeed : FanModeAutomatic;
+    IOReturn result = applyFanMode(next);
+    if (result == kIOReturnSuccess)
+        kev.sendMessage(kDaemonFanMode, next, 0);
+    return result;
+}
+
 IOReturn AsusSMC::applyFanMode(uint32_t mode) {
     if (!fanControlSupported) {
         return kIOReturnUnsupported;
@@ -1071,13 +1084,18 @@ void AsusSMC::handleMessage(int code) {
                         if (self->suspended) {
                             return kIOReturnNotReady;
                         }
+                        bool switchWindows = *static_cast<int *>(argument) == 0x9C;
                         if (self->screenPadPower < 0) {
                             self->readScreenPadState();
-                            if (self->screenPadPower < 0) {
-                                return kIOReturnNotReady;
-                            }
                         }
-                        if (*static_cast<int *>(argument) == 0x9C) {
+                        if (switchWindows && self->screenPadSupported &&
+                            self->fanControlSupported) {
+                            return self->toggleFanMode();
+                        }
+                        if (self->screenPadPower < 0) {
+                            return kIOReturnNotReady;
+                        }
+                        if (switchWindows) {
                             self->cycleScreenPadBrightness();
                         } else {
                             self->setScreenPadPower(self->screenPadPower == 0);

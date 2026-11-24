@@ -18,7 +18,9 @@ Note that AsusSMC refreshes speeds once per second, so a query immediately after
 
 In Automatic, the laptop's firmware adjusts fan speed according to temperature. Full Speed overrides that adjustment by asking firmware to run the fan at maximum speed. Firmware determines which fans respond to this command, so a laptop with two readable fans may still provide Full Speed control of only one. This interface does not offer independent fan controls or a way to choose a particular RPM.
 
-Mode changes require administrator privileges. To request Full Speed, run:
+On ZenBook Duo models with ScreenPad controls, press the Switch Windows button to toggle between Automatic and Full Speed, even with the lower panel off. AsusSMCDaemon briefly shows the selected mode on your primary display. You can also read it with `fanctl status`.
+
+Changing the mode from Terminal requires administrator privileges. To request Full Speed, run:
 
 ```sh
 sudo build/fanctl full

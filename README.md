@@ -38,7 +38,7 @@ Pushing a tag such as `v1.4.2` sets the kext version to `1.4.2` and publishes bo
 
 #### ScreenPad Plus
 
-On ZenBook Duo models with ScreenPad controls in ASUS WMI, the Switch Windows button cycles the lower display through five brightness steps and reverses direction at either end. The adjacent ScreenPad button turns the display off and restores its brightness when you turn it back on. AsusSMC remembers the brightness you choose across sleep and restart. It restores that level before login if the ScreenPad is on, or when you next turn it on. Until you choose a level, firmware supplies the startup brightness.
+On a ZenBook Duo, press Switch Windows to toggle between Automatic and Full Speed. If `fanctl status` reports `Fan control: unavailable`, the button adjusts ScreenPad brightness instead. The adjacent ScreenPad button turns the lower display off and restores its brightness when you turn it back on. AsusSMC remembers the brightness you choose across sleep and restart. It restores that level before login if the ScreenPad is on, or when you next turn it on. Until you choose a level, firmware supplies the startup brightness.
 
 With AsusSMCDaemon running, move the pointer onto the ScreenPad and press the usual brightness keys (F4/F5 on the UX481) to dim or brighten it in 16 steps. The brightness indicator appears on the lower panel. Moving the pointer back to the primary display returns those keys to macOS. Before login or when the displays are mirrored, macOS handles them as usual.
 

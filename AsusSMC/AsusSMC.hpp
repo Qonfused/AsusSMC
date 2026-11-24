@@ -87,10 +87,6 @@ private:
         kKeyboardKeyPressTime = iokit_vendor_specific_msg(110),   // notify of timestamp a non-modifier key was pressed (data is uint64_t*)
     };
 
-    enum {
-        FanModeAutomatic = 0,
-        FanModeFullSpeed = 1
-    };
 
     static constexpr uint32_t SensorUpdateTimeoutMS {1000};
 
@@ -132,6 +128,7 @@ private:
     void initFans();
     bool readFanSpeed(uint32_t index, uint32_t &speed);
     void refreshFan();
+    IOReturn toggleFanMode();
     IOReturn applyFanMode(uint32_t mode);
     void updatePowerState(bool sleeping);
 

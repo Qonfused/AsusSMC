@@ -21,6 +21,7 @@
 		4C4FE6B82156A4A70074AD08 /* CoreWLAN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4C4FE6B72156A4A70074AD08 /* CoreWLAN.framework */; };
 		6EC1B7935C56A4A70074AD08 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6EC1B7925C56A4A70074AD08 /* IOKit.framework */; };
 		4C4FE6BD2156A4FB0074AD08 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 4C4FE6BB2156A4FB0074AD08 /* main.m */; };
+		D83000000000000000000003 /* FanModeHUD.m in Sources */ = {isa = PBXBuildFile; fileRef = D83000000000000000000001 /* FanModeHUD.m */; };
 		4C4FE6C02156A5820074AD08 /* KeyImplementations.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4C4FE6BE2156A5820074AD08 /* KeyImplementations.cpp */; };
 		4C4FE6C12156A5820074AD08 /* KeyImplementations.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 4C4FE6BF2156A5820074AD08 /* KeyImplementations.hpp */; };
 		4CA82AB2251A07F300B02E1C /* libkmod.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CA82AB1251A07F000B02E1C /* libkmod.a */; };
@@ -125,6 +126,8 @@
 		4C4FE6B92156A4FB0074AD08 /* OSD.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = OSD.h; sourceTree = "<group>"; };
 		4C4FE6BA2156A4FB0074AD08 /* BezelServices.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = BezelServices.h; sourceTree = "<group>"; };
 		4C4FE6BB2156A4FB0074AD08 /* main.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		D83000000000000000000001 /* FanModeHUD.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FanModeHUD.m; sourceTree = "<group>"; };
+		D83000000000000000000002 /* FanModeHUD.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FanModeHUD.h; sourceTree = "<group>"; };
 		4C4FE6BC2156A4FB0074AD08 /* com.hieplpvip.AsusSMCDaemon.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = com.hieplpvip.AsusSMCDaemon.plist; sourceTree = "<group>"; };
 		4C4FE6BE2156A5820074AD08 /* KeyImplementations.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = KeyImplementations.cpp; sourceTree = "<group>"; };
 		4C4FE6BF2156A5820074AD08 /* KeyImplementations.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = KeyImplementations.hpp; sourceTree = "<group>"; };
@@ -311,6 +314,8 @@
 				4C4FE6BC2156A4FB0074AD08 /* com.hieplpvip.AsusSMCDaemon.plist */,
 				4C32364A2159051A00700256 /* install_daemon.sh */,
 				4C4FE6BB2156A4FB0074AD08 /* main.m */,
+				D83000000000000000000001 /* FanModeHUD.m */,
+				D83000000000000000000002 /* FanModeHUD.h */,
 				4C4FE6B92156A4FB0074AD08 /* OSD.h */,
 			);
 			path = AsusSMCDaemon;
@@ -480,6 +485,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4C4FE6BD2156A4FB0074AD08 /* main.m in Sources */,
+				D83000000000000000000003 /* FanModeHUD.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -16,6 +16,7 @@
 #import "../Global/AsusSMCMessage.h"
 #import "BezelServices.h"
 #import "OSD.h"
+#import "FanModeHUD.h"
 
 /*
  *    kAERestart        will cause system to restart
@@ -200,6 +201,57 @@ void toggleAirplaneMode(void) {
     }
 }
 
+static void receiveEvent(int systemSocket, io_service_t service) {
+    char kextMsg[KEV_MSG_HEADER_SIZE + sizeof(struct AsusSMCMessage)];
+    ssize_t received = recv(systemSocket, kextMsg, sizeof(kextMsg), MSG_DONTWAIT);
+    if (received < 0) {
+        if (errno == EINTR || errno == EAGAIN)
+            return;
+        perror("recv(SYSPROTO_EVENT)");
+        exit(EXIT_FAILURE);
+    }
+    if (received != sizeof(kextMsg))
+        return;
+
+    const struct kern_event_msg *event = (const void *)kextMsg;
+    if (event->event_code != AsusSMCEventCode || event->total_size != sizeof(kextMsg))
+        return;
+
+    const struct AsusSMCMessage *message = (const void *)event->event_data;
+    switch (message->type) {
+        case kDaemonKeyboardBacklight:
+            showKBoardBLightStatus(message->x, message->y);
+            break;
+        case kDaemonChooseBrightnessDisplay:
+            chooseBrightnessDisplay(service, message->x);
+            break;
+        case kDaemonScreenPadBrightness:
+            showBacklightMeter(screenPadDisplayID(),
+                               message->x, message->y,
+                               BSGraphicBacklightMeter,
+                               OSDGraphicBacklight);
+            break;
+        case kDaemonFanMode: {
+            NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+            if ([session[(__bridge NSString *)kCGSessionOnConsoleKey] boolValue] &&
+                [session[(__bridge NSString *)kCGSessionLoginDoneKey] boolValue] &&
+                ![session[@"CGSSessionScreenIsLocked"] boolValue]) {
+                static FanModeHUD *hud;
+                if (!hud)
+                    hud = [[FanModeHUD alloc] init];
+                [hud showMode:message->x];
+            }
+            break;
+        }
+        case kDaemonAirplaneMode:
+            toggleAirplaneMode();
+            break;
+        case kDaemonSleep:
+            goToSleep();
+            break;
+    }
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         printf("daemon started...\n");
@@ -235,52 +287,26 @@ int main(int argc, const char *argv[]) {
         if (!service)
             return EXIT_FAILURE;
 
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        dispatch_source_t events = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
+            systemSocket, 0, dispatch_get_main_queue());
+        if (!events)
+            return EXIT_FAILURE;
+        dispatch_source_set_event_handler(events, ^{
+            @autoreleasepool {
+                receiveEvent(systemSocket, service);
+            }
+        });
+        dispatch_resume(events);
+
         // Subscribe before advertising readiness so the first key can be routed.
         IORegistryEntrySetCFProperty(service, CFSTR(AsusSMCBrightnessRoutingReady),
                                      kCFBooleanTrue);
 
-        char kextMsg[KEV_MSG_HEADER_SIZE + sizeof(struct AsusSMCMessage)];
-        while (YES) {
-            ssize_t bytesReceived = recv(systemSocket, kextMsg, sizeof(kextMsg), 0);
-            if (bytesReceived < 0) {
-                if (errno == EINTR)
-                    continue;
-                perror("recv(SYSPROTO_EVENT)");
-                IOObjectRelease(service);
-                return EXIT_FAILURE;
-            }
-            if (bytesReceived != sizeof(kextMsg))
-                continue;
-
-            const struct kern_event_msg *event = (const void *)kextMsg;
-            if (event->event_code != AsusSMCEventCode ||
-                event->total_size != sizeof(kextMsg))
-                continue;
-
-            const struct AsusSMCMessage *message = (const void *)event->event_data;
-            @autoreleasepool {
-                switch (message->type) {
-                    case kDaemonKeyboardBacklight:
-                        showKBoardBLightStatus(message->x, message->y);
-                        break;
-                    case kDaemonChooseBrightnessDisplay:
-                        chooseBrightnessDisplay(service, message->x);
-                        break;
-                    case kDaemonScreenPadBrightness:
-                        showBacklightMeter(screenPadDisplayID(),
-                                           message->x, message->y,
-                                           BSGraphicBacklightMeter,
-                                           OSDGraphicBacklight);
-                        break;
-                    case kDaemonAirplaneMode:
-                        toggleAirplaneMode();
-                        break;
-                    case kDaemonSleep:
-                        goToSleep();
-                        break;
-                }
-            }
-        }
+        [NSApp run];
+        dispatch_source_cancel(events);
+        IOObjectRelease(service);
     }
 
     return 0;
